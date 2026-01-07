@@ -15,6 +15,7 @@
 #include <termios.h>
 #include <errno.h>
 #include <sys/time.h>
+#include <sys/select.h>
 #include <fcntl.h>
 
 #define TMP_TEMPLATE "/tmp/x3-XXXXXX"
@@ -855,7 +856,10 @@ static int read_line_with_history(char *buf, size_t size)
     new_term.c_lflag &= ~(ICANON | ECHO);
     new_term.c_cc[VMIN] = 1;
     new_term.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_term);
+    
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_term) == -1) {
+        return 0;
+    }
     
     int pos = 0;
     int hist_idx = -1;
@@ -866,8 +870,10 @@ static int read_line_with_history(char *buf, size_t size)
     
     while (1) {
         char c;
-        if (read(STDIN_FILENO, &c, 1) != 1) {
+        ssize_t n = read(STDIN_FILENO, &c, 1);
+        if (n != 1) {
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_term);
+            printf("\n");
             return 0;
         }
         
@@ -879,52 +885,70 @@ static int read_line_with_history(char *buf, size_t size)
         }
         else if (c == 3 || c == 4) {
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_term);
+            printf("\n");
             return 0;
         }
         else if (c == 27) {
-            char a, b;
-            if (read(STDIN_FILENO, &a, 1) != 1) continue;
-            if (a != '[') continue;
-            if (read(STDIN_FILENO, &b, 1) != 1) continue;
+            char a = 0, b = 0;
+            fd_set readfds;
+            struct timeval timeout;
             
-            if (b == 'A') {
-                if (hist_idx == -1) {
-                    hist_idx = history_count - 1;
-                } else if (hist_idx > 0) {
-                    hist_idx--;
-                }
-                
-                if (hist_idx >= 0 && history[hist_idx]) {
-                    int len = strlen(history[hist_idx]);
-                    printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
-                    for (int i = len; i < pos; i++) printf(" ");
-                    printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
-                    fflush(stdout);
-                    strncpy(buf, history[hist_idx], size - 1);
-                    buf[size - 1] = '\0';
-                    pos = len;
-                }
-            }
-            else if (b == 'B') {
-                if (hist_idx >= 0) {
-                    hist_idx++;
-                    if (hist_idx >= history_count) {
-                        hist_idx = -1;
-                        printf("\r[x3] / or // (q to exit): ");
-                        for (int i = 0; i < pos; i++) printf(" ");
-                        printf("\r[x3] / or // (q to exit): ");
-                        fflush(stdout);
-                        buf[0] = '\0';
-                        pos = 0;
-                    } else if (history[hist_idx]) {
-                        int len = strlen(history[hist_idx]);
-                        printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
-                        for (int i = len; i < pos; i++) printf(" ");
-                        printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
-                        fflush(stdout);
-                        strncpy(buf, history[hist_idx], size - 1);
-                        buf[size - 1] = '\0';
-                        pos = len;
+            FD_ZERO(&readfds);
+            FD_SET(STDIN_FILENO, &readfds);
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 100000;
+            
+            if (select(STDIN_FILENO + 1, &readfds, NULL, NULL, &timeout) > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
+                if (read(STDIN_FILENO, &a, 1) == 1 && a == '[') {
+                    FD_ZERO(&readfds);
+                    FD_SET(STDIN_FILENO, &readfds);
+                    timeout.tv_sec = 0;
+                    timeout.tv_usec = 100000;
+                    
+                    if (select(STDIN_FILENO + 1, &readfds, NULL, NULL, &timeout) > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
+                        if (read(STDIN_FILENO, &b, 1) == 1) {
+                            if (b == 'A') {
+                                if (hist_idx == -1) {
+                                    hist_idx = history_count - 1;
+                                } else if (hist_idx > 0) {
+                                    hist_idx--;
+                                }
+                                
+                                if (hist_idx >= 0 && history[hist_idx]) {
+                                    int len = strlen(history[hist_idx]);
+                                    printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
+                                    for (int i = len; i < pos; i++) printf(" ");
+                                    printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
+                                    fflush(stdout);
+                                    strncpy(buf, history[hist_idx], size - 1);
+                                    buf[size - 1] = '\0';
+                                    pos = len;
+                                }
+                            }
+                            else if (b == 'B') {
+                                if (hist_idx >= 0) {
+                                    hist_idx++;
+                                    if (hist_idx >= history_count) {
+                                        hist_idx = -1;
+                                        printf("\r[x3] / or // (q to exit): ");
+                                        for (int i = 0; i < pos; i++) printf(" ");
+                                        printf("\r[x3] / or // (q to exit): ");
+                                        fflush(stdout);
+                                        buf[0] = '\0';
+                                        pos = 0;
+                                    } else if (history[hist_idx]) {
+                                        int len = strlen(history[hist_idx]);
+                                        printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
+                                        for (int i = len; i < pos; i++) printf(" ");
+                                        printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
+                                        fflush(stdout);
+                                        strncpy(buf, history[hist_idx], size - 1);
+                                        buf[size - 1] = '\0';
+                                        pos = len;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1021,6 +1045,8 @@ static void interactive(void)
             printf("[x3] Use / to list all, /pattern for local, or //pattern for recursive\n");
         }
     }
+    
+    restore_terminal();
 }
 
 int main(int argc, char *argv[])
