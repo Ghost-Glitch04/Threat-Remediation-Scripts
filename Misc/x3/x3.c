@@ -20,6 +20,28 @@
 #define TMP_TEMPLATE "/tmp/x3-XXXXXX"
 #define BUF_SIZE 8192
 #define MAX_RESULTS 2048
+#define MAX_PATTERNS 32
+#define MAX_KEYWORDS 32
+#define MAX_HISTORY 100
+
+typedef struct {
+    char *patterns[MAX_PATTERNS];
+    int pattern_count;
+    char *keywords[MAX_KEYWORDS];
+    int keyword_count;
+    char *or_patterns[MAX_PATTERNS];
+    int or_count;
+    char *exclude_patterns[MAX_PATTERNS];
+    int exclude_count;
+    char *path_keywords[MAX_KEYWORDS];
+    int path_keyword_count;
+    char *name_patterns[MAX_PATTERNS];
+    int name_pattern_count;
+    char *ext_patterns[MAX_PATTERNS];
+    int ext_count;
+    char *dir_keywords[MAX_KEYWORDS];
+    int dir_keyword_count;
+} search_query_t;
 
 static char g_tmpdir[sizeof(TMP_TEMPLATE)];
 static int g_tmpdir_created = 0;
@@ -33,6 +55,9 @@ static char *results[MAX_RESULTS];
 static int result_count = 0;
 static int selected = 0;
 static char *current_dir = NULL;
+static char *history[MAX_HISTORY];
+static int history_count = 0;
+static int history_pos = -1;
 
 static void reset_results(void);
 static void restore_terminal(void);
@@ -272,6 +297,232 @@ static int has_glob(const char *s)
     return 0;
 }
 
+static void free_search_query(search_query_t *q)
+{
+    for (int i = 0; i < q->pattern_count; i++)
+        free(q->patterns[i]);
+    for (int i = 0; i < q->keyword_count; i++)
+        free(q->keywords[i]);
+    for (int i = 0; i < q->or_count; i++)
+        free(q->or_patterns[i]);
+    for (int i = 0; i < q->exclude_count; i++)
+        free(q->exclude_patterns[i]);
+    for (int i = 0; i < q->path_keyword_count; i++)
+        free(q->path_keywords[i]);
+    for (int i = 0; i < q->name_pattern_count; i++)
+        free(q->name_patterns[i]);
+    for (int i = 0; i < q->ext_count; i++)
+        free(q->ext_patterns[i]);
+    for (int i = 0; i < q->dir_keyword_count; i++)
+        free(q->dir_keywords[i]);
+    memset(q, 0, sizeof(*q));
+}
+
+static void parse_search_query(const char *input, search_query_t *q)
+{
+    memset(q, 0, sizeof(*q));
+    
+    if (!input || !*input)
+        return;
+    
+    char *query = strdup(input);
+    if (!query) return;
+    
+    char *token = query;
+    
+    while (*token) {
+        while (*token && isspace(*token)) token++;
+        if (!*token) break;
+        
+        int is_or = 0;
+        int is_exclude = 0;
+        
+        if (*token == '|') {
+            is_or = 1;
+            token++;
+            while (*token && isspace(*token)) token++;
+        } else if (*token == '!') {
+            is_exclude = 1;
+            token++;
+            while (*token && isspace(*token)) token++;
+        }
+        
+        if (!*token) break;
+        
+        char *start = token;
+        while (*token && !isspace(*token) && *token != '|' && *token != '!') token++;
+        int len = token - start;
+        
+        if (len == 0) continue;
+        
+        char *term = strndup(start, len);
+        if (!term) continue;
+        
+        if (strncmp(term, "path:", 5) == 0) {
+            if (q->path_keyword_count < MAX_KEYWORDS) {
+                q->path_keywords[q->path_keyword_count++] = strdup(term + 5);
+            }
+        } else if (strncmp(term, "name:", 5) == 0) {
+            if (q->name_pattern_count < MAX_PATTERNS) {
+                q->name_patterns[q->name_pattern_count++] = strdup(term + 5);
+            }
+        } else if (strncmp(term, "ext:", 4) == 0) {
+            if (q->ext_count < MAX_PATTERNS) {
+                char *ext = term + 4;
+                if (*ext == '.') ext++;
+                q->ext_patterns[q->ext_count++] = strdup(ext);
+            }
+        } else if (strncmp(term, "dir:", 4) == 0) {
+            if (q->dir_keyword_count < MAX_KEYWORDS) {
+                q->dir_keywords[q->dir_keyword_count++] = strdup(term + 4);
+            }
+        } else if (is_or) {
+            if (q->or_count < MAX_PATTERNS) {
+                q->or_patterns[q->or_count++] = term;
+                term = NULL;
+            }
+        } else if (is_exclude) {
+            if (q->exclude_count < MAX_PATTERNS) {
+                q->exclude_patterns[q->exclude_count++] = term;
+                term = NULL;
+            }
+        } else {
+            if (has_glob(term)) {
+                if (q->pattern_count < MAX_PATTERNS) {
+                    q->patterns[q->pattern_count++] = term;
+                    term = NULL;
+                }
+            } else {
+                if (q->keyword_count < MAX_KEYWORDS) {
+                    q->keywords[q->keyword_count++] = term;
+                    term = NULL;
+                }
+            }
+        }
+        
+        if (term) free(term);
+    }
+    
+    free(query);
+}
+
+static int matches_search_query(const char *filename, const char *full_path, search_query_t *q)
+{
+    if (!q) return 1;
+    
+    const char *bn = basename((char *)filename);
+    int matched = 0;
+    int has_conditions = 0;
+    
+    if (q->pattern_count > 0 || q->keyword_count > 0 || q->name_pattern_count > 0 || 
+        q->ext_count > 0 || q->or_count > 0) {
+        has_conditions = 1;
+    }
+    
+    if (q->or_count > 0) {
+        for (int i = 0; i < q->or_count; i++) {
+            if (has_glob(q->or_patterns[i])) {
+                if (fnmatch(q->or_patterns[i], bn, FNM_CASEFOLD) == 0) {
+                    matched = 1;
+                    break;
+                }
+            } else {
+                if (strcasestr(bn, q->or_patterns[i]) != NULL) {
+                    matched = 1;
+                    break;
+                }
+            }
+        }
+    } else {
+        matched = 1;
+        
+        for (int i = 0; i < q->pattern_count; i++) {
+            if (fnmatch(q->patterns[i], bn, FNM_CASEFOLD) != 0) {
+                matched = 0;
+                break;
+            }
+        }
+        
+        for (int i = 0; i < q->keyword_count; i++) {
+            if (strcasestr(bn, q->keywords[i]) == NULL && 
+                strcasestr(full_path, q->keywords[i]) == NULL) {
+                matched = 0;
+                break;
+            }
+        }
+        
+        for (int i = 0; i < q->name_pattern_count; i++) {
+            if (has_glob(q->name_patterns[i])) {
+                if (fnmatch(q->name_patterns[i], bn, FNM_CASEFOLD) != 0) {
+                    matched = 0;
+                    break;
+                }
+            } else {
+                if (strcasestr(bn, q->name_patterns[i]) == NULL) {
+                    matched = 0;
+                    break;
+                }
+            }
+        }
+        
+        for (int i = 0; i < q->ext_count; i++) {
+            const char *ext = strrchr(bn, '.');
+            if (!ext || strcasecmp(ext + 1, q->ext_patterns[i]) != 0) {
+                matched = 0;
+                break;
+            }
+        }
+    }
+    
+    if (q->path_keyword_count > 0) {
+        int path_match = 0;
+        for (int i = 0; i < q->path_keyword_count; i++) {
+            if (strcasestr(full_path, q->path_keywords[i]) != NULL) {
+                path_match = 1;
+                break;
+            }
+        }
+        if (!path_match) matched = 0;
+    }
+    
+    if (q->dir_keyword_count > 0) {
+        int dir_match = 0;
+        char *dir_path = strdup(full_path);
+        if (dir_path) {
+            char *dir = dirname(dir_path);
+            for (int i = 0; i < q->dir_keyword_count; i++) {
+                if (strcasestr(dir, q->dir_keywords[i]) != NULL) {
+                    dir_match = 1;
+                    break;
+                }
+            }
+            free(dir_path);
+        }
+        if (!dir_match) matched = 0;
+    }
+    
+    if (matched && q->exclude_count > 0) {
+        for (int i = 0; i < q->exclude_count; i++) {
+            if (has_glob(q->exclude_patterns[i])) {
+                if (fnmatch(q->exclude_patterns[i], bn, FNM_CASEFOLD) == 0 ||
+                    fnmatch(q->exclude_patterns[i], full_path, FNM_CASEFOLD) == 0) {
+                    matched = 0;
+                    break;
+                }
+            } else {
+                if (strcasestr(bn, q->exclude_patterns[i]) != NULL ||
+                    strcasestr(full_path, q->exclude_patterns[i]) != NULL) {
+                    matched = 0;
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (!has_conditions) return 1;
+    return matched;
+}
+
 static void reset_results(void)
 {
     for (int i = 0; i < result_count; i++)
@@ -289,39 +540,32 @@ static void collect_non_recursive(const char *pattern)
         return;
     }
 
+    search_query_t query;
+    parse_search_query(pattern, &query);
+
     struct dirent *de;
     while ((de = readdir(d)) && result_count < MAX_RESULTS) {
         if (de->d_name[0] == '.')
             continue;
 
-        int ok = 1;
-        if (pattern && *pattern) {
-            const char *p = pattern;
-            while (*p && isspace(*p)) p++;
-            
-            if (*p) {
-                ok = has_glob(p)
-                    ? fnmatch(p, de->d_name, FNM_CASEFOLD) == 0
-                    : strncasecmp(de->d_name, p, strlen(p)) == 0;
-            }
-        }
-
-        if (!ok)
-            continue;
-
         char *full_path;
         if (asprintf(&full_path, "%s/%s", search_dir, de->d_name) >= 0) {
-            char *abs_path = realpath(full_path, NULL);
-            if (abs_path) {
-                free(full_path);
-                results[result_count++] = abs_path;
+            if (matches_search_query(de->d_name, full_path, &query)) {
+                char *abs_path = realpath(full_path, NULL);
+                if (abs_path) {
+                    free(full_path);
+                    results[result_count++] = abs_path;
+                } else {
+                    results[result_count++] = full_path;
+                }
             } else {
-                results[result_count++] = full_path;
+                free(full_path);
             }
         }
     }
 
     closedir(d);
+    free_search_query(&query);
 }
 
 static int is_directory(const char *path)
@@ -368,7 +612,7 @@ static void navigate_up(void)
     free(parent);
 }
 
-static void walk_directory(const char *dir, const char *filter_pattern)
+static void walk_directory(const char *dir, search_query_t *query)
 {
     DIR *d = opendir(dir);
     if (!d) {
@@ -396,19 +640,7 @@ static void walk_directory(const char *dir, const char *filter_pattern)
         if (stat(full_path, &st) == 0) {
             if (S_ISREG(st.st_mode)) {
                 if (result_count < MAX_RESULTS) {
-                    int matches = 1;
-                    if (filter_pattern && *filter_pattern) {
-                        const char *bn = basename(full_path);
-                        const char *p = filter_pattern;
-                        while (*p && isspace(*p)) p++;
-                        if (*p) {
-                            matches = has_glob(p)
-                                ? fnmatch(p, bn, FNM_CASEFOLD) == 0
-                                : strcasestr(bn, p) != NULL;
-                        }
-                    }
-                    
-                    if (matches) {
+                    if (matches_search_query(de->d_name, full_path, query)) {
                         char *abs_path = realpath(full_path, NULL);
                         if (abs_path) {
                             results[result_count++] = abs_path;
@@ -425,7 +657,7 @@ static void walk_directory(const char *dir, const char *filter_pattern)
                     }
                 }
             } else if (S_ISDIR(st.st_mode)) {
-                walk_directory(full_path, filter_pattern);
+                walk_directory(full_path, query);
             }
         }
         
@@ -451,14 +683,12 @@ static void collect_recursive(const char *pattern)
         root_clean[root_len - 1] = '\0';
     }
     
-    const char *filter_pattern = NULL;
-    if (pattern && *pattern) {
-        filter_pattern = pattern;
-        while (*filter_pattern && isspace(*filter_pattern)) filter_pattern++;
-        if (!*filter_pattern) filter_pattern = NULL;
-    }
+    search_query_t query;
+    parse_search_query(pattern, &query);
     
-    walk_directory(root_clean, filter_pattern);
+    walk_directory(root_clean, &query);
+    
+    free_search_query(&query);
     
     if (root_clean != g_root) {
         free(root_clean);
@@ -615,18 +845,137 @@ static void selector(const char *mode)
     restore_terminal();
 }
 
+static int read_line_with_history(char *buf, size_t size)
+{
+    struct termios old_term, new_term;
+    if (tcgetattr(STDIN_FILENO, &old_term) == -1)
+        return 0;
+    
+    new_term = old_term;
+    new_term.c_lflag &= ~(ICANON | ECHO);
+    new_term.c_cc[VMIN] = 1;
+    new_term.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_term);
+    
+    int pos = 0;
+    int hist_idx = -1;
+    buf[0] = '\0';
+    
+    printf("\n[x3] / or // (q to exit): ");
+    fflush(stdout);
+    
+    while (1) {
+        char c;
+        if (read(STDIN_FILENO, &c, 1) != 1) {
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_term);
+            return 0;
+        }
+        
+        if (c == '\n') {
+            buf[pos] = '\0';
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_term);
+            printf("\n");
+            return 1;
+        }
+        else if (c == 3 || c == 4) {
+            tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_term);
+            return 0;
+        }
+        else if (c == 27) {
+            char a, b;
+            if (read(STDIN_FILENO, &a, 1) != 1) continue;
+            if (a != '[') continue;
+            if (read(STDIN_FILENO, &b, 1) != 1) continue;
+            
+            if (b == 'A') {
+                if (hist_idx == -1) {
+                    hist_idx = history_count - 1;
+                } else if (hist_idx > 0) {
+                    hist_idx--;
+                }
+                
+                if (hist_idx >= 0 && history[hist_idx]) {
+                    int len = strlen(history[hist_idx]);
+                    printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
+                    for (int i = len; i < pos; i++) printf(" ");
+                    printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
+                    fflush(stdout);
+                    strncpy(buf, history[hist_idx], size - 1);
+                    buf[size - 1] = '\0';
+                    pos = len;
+                }
+            }
+            else if (b == 'B') {
+                if (hist_idx >= 0) {
+                    hist_idx++;
+                    if (hist_idx >= history_count) {
+                        hist_idx = -1;
+                        printf("\r[x3] / or // (q to exit): ");
+                        for (int i = 0; i < pos; i++) printf(" ");
+                        printf("\r[x3] / or // (q to exit): ");
+                        fflush(stdout);
+                        buf[0] = '\0';
+                        pos = 0;
+                    } else if (history[hist_idx]) {
+                        int len = strlen(history[hist_idx]);
+                        printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
+                        for (int i = len; i < pos; i++) printf(" ");
+                        printf("\r[x3] / or // (q to exit): %s", history[hist_idx]);
+                        fflush(stdout);
+                        strncpy(buf, history[hist_idx], size - 1);
+                        buf[size - 1] = '\0';
+                        pos = len;
+                    }
+                }
+            }
+        }
+        else if (c == 127 || c == '\b') {
+            if (pos > 0) {
+                pos--;
+                buf[pos] = '\0';
+                printf("\b \b");
+                fflush(stdout);
+            }
+        }
+        else if (c >= 32 && c < 127) {
+            if (pos < (int)(size - 1)) {
+                buf[pos++] = c;
+                buf[pos] = '\0';
+                printf("%c", c);
+                fflush(stdout);
+            }
+        }
+    }
+}
+
+static void add_to_history(const char *cmd)
+{
+    if (!cmd || !*cmd) return;
+    
+    if (history_count > 0 && history[history_count - 1] && 
+        strcmp(history[history_count - 1], cmd) == 0) {
+        return;
+    }
+    
+    if (history_count >= MAX_HISTORY) {
+        free(history[0]);
+        for (int i = 0; i < history_count - 1; i++) {
+            history[i] = history[i + 1];
+        }
+        history_count--;
+    }
+    
+    history[history_count++] = strdup(cmd);
+}
+
 static void interactive(void)
 {
     char buf[256];
 
     while (1) {
-        printf("\n[x3] / or // (q to exit): ");
-        fflush(stdout);
-        
-        if (!fgets(buf, sizeof(buf), stdin))
+        if (!read_line_with_history(buf, sizeof(buf)))
             break;
 
-        buf[strcspn(buf, "\n")] = 0;
         if (!strcmp(buf, "q")) {
             if (g_child_pid > 0) {
                 killpg(g_child_pid, SIGTERM);
@@ -639,6 +988,10 @@ static void interactive(void)
                 g_child_pid = -1;
             }
             break;
+        }
+
+        if (buf[0]) {
+            add_to_history(buf);
         }
 
         reset_results();
