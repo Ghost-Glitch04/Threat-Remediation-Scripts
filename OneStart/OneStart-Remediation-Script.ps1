@@ -80,15 +80,39 @@ foreach ($task in $tasks) {
 }
 
 # Optional: Clean up orphaned TaskCache registry entries (normally handled by Unregister-ScheduledTask)
-$taskCacheBasePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE"
+$taskCacheBasePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache"
 $taskNamePatterns = @("OneStart*", "PDFEditor*", "sys_component_health_*")
 
 foreach ($pattern in $taskNamePatterns) {
-    $matchingKeys = Get-ChildItem -Path $taskCacheBasePath -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like $pattern }
+    $matchingKeys = Get-ChildItem -Path "$taskCacheBasePath\TREE" -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like $pattern }
     foreach ($key in $matchingKeys) {
-        Remove-Item -Path $key.PSPath -Recurse -ErrorAction SilentlyContinue
+        $taskName = $key.PSChildName
+        
+        # Get the GUID associated with this task from the Id property
+        $taskId = (Get-ItemProperty -Path $key.PSPath -Name "Id" -ErrorAction SilentlyContinue).Id
+        
+        # Remove the TREE entry
+        Remove-Item -Path $key.PSPath -Recurse -Force -ErrorAction SilentlyContinue
+        
+        # If we found a GUID, remove associated entries in Tasks, Plain, Boot, and Logon
+        if ($taskId) {
+            $guidString = "{$taskId}"
+            $relatedPaths = @(
+                "$taskCacheBasePath\Tasks\$guidString",
+                "$taskCacheBasePath\Plain\$guidString",
+                "$taskCacheBasePath\Boot\$guidString",
+                "$taskCacheBasePath\Logon\$guidString"
+            )
+            foreach ($relatedPath in $relatedPaths) {
+                if (Test-Path -Path $relatedPath) {
+                    Remove-Item -Path $relatedPath -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        
+        # Verify removal
         if (Test-Path -Path $key.PSPath) {
-            Write-Host "Warning: Failed to remove orphaned registry key -> $($key.PSPath)"
+            Write-Host "Warning: Failed to remove orphaned registry key -> $taskName"
         }
     }
 }

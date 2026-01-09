@@ -7,6 +7,22 @@
 
 ---
 
+## [v1.1.1] - 2026-01-09
+
+### Changed - OneStart
+**Script:** `OneStart/OneStart-Remediation-Script.ps1`  
+**Issue:** Ophaned Registry Keys after the script was used.  
+**Fix:** Replaced "Test-Path" with "Get-CHildItem".
+
+**Lines Changed:** 83-91 
+
+**Code Changes:**
+
+Replaced Logic in lines 83-91
+Replaces "Test-Path" with "Get-ChileItem"
+
+---
+
 ## [v1.1.0] - 2026-01-09
 
 ### Changed - OneStart
