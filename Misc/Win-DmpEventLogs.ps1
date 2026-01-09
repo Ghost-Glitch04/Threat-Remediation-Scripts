@@ -20,6 +20,9 @@ public class EventLogAnalyzer
         public string UserId { get; set; }
         public string Message { get; set; }
         public string CorrelationTag { get; set; }
+        public string ThreatLevel { get; set; }
+        public string SigmaRuleMatch { get; set; }
+        public string MitreAttack { get; set; }
     }
 
     public static void WriteLog(StringBuilder log, string logFile, string msg)
@@ -32,14 +35,16 @@ public class EventLogAnalyzer
         }
     }
 
+    private static Dictionary<string, string> CreateRule(string title, string mitre, string level)
+    {
+        return new Dictionary<string, string> { { "RuleTitle", title }, { "MitreAttack", mitre }, { "ThreatLevel", level } };
+    }
+
     public static Dictionary<string, object> ParseEventLogs(string[] logNames, DateTime? startTime = null, DateTime? endTime = null, StringBuilder logBuffer = null, string logFile = null)
     {
         var entries = new List<EventLogEntry>();
         var accessResults = new Dictionary<string, string>();
         var start = DateTime.Now;
-        
-        if (logBuffer != null)
-            WriteLog(logBuffer, logFile, "ParseEventLogs started");
         
         foreach (var logName in logNames)
         {
@@ -47,16 +52,10 @@ public class EventLogAnalyzer
             int errorCount = 0;
             var logStart = DateTime.Now;
             
-            if (logBuffer != null)
-                WriteLog(logBuffer, logFile, string.Format("Processing: {0}", logName));
-            
             try
             {
                 using (var session = new EventLogSession())
                 {
-                    if (logBuffer != null)
-                        WriteLog(logBuffer, logFile, string.Format("{0}: Creating reader", logName));
-                    
                     EventLogReader reader = null;
                     if (startTime.HasValue || endTime.HasValue)
                     {
@@ -79,8 +78,6 @@ public class EventLogAnalyzer
                         }
                         var query = new EventLogQuery(logName, PathType.LogName, xpath.ToString());
                         reader = new EventLogReader(query);
-                        if (logBuffer != null)
-                            WriteLog(logBuffer, logFile, string.Format("{0}: Using time filter", logName));
                     }
                     else
                     {
@@ -89,17 +86,10 @@ public class EventLogAnalyzer
                     
                     using (reader)
                     {
-                        if (logBuffer != null)
-                            WriteLog(logBuffer, logFile, string.Format("{0}: Reading events", logName));
-                        
                         EventRecord eventRecord;
-                        int readAttempts = 0;
                         
                         while ((eventRecord = reader.ReadEvent()) != null)
                         {
-                            readAttempts++;
-                            if (readAttempts == 1 && logBuffer != null)
-                                WriteLog(logBuffer, logFile, string.Format("{0}: First ReadEvent() call", logName));
                             
                             try
                             {
@@ -117,6 +107,7 @@ public class EventLogAnalyzer
                                     message = "N/A";
                                 }
                                 
+                                var analysis = AnalyzeEvent(eventRecord, message);
                                 var entry = new EventLogEntry
                                 {
                                     LogName = logName,
@@ -127,46 +118,33 @@ public class EventLogAnalyzer
                                     MachineName = eventRecord.MachineName ?? Environment.MachineName,
                                     UserId = eventRecord.UserId != null ? eventRecord.UserId.ToString() : "N/A",
                                     Message = message,
-                                    CorrelationTag = AnalyzeEvent(eventRecord)
+                                    CorrelationTag = analysis["Tags"],
+                                    ThreatLevel = analysis["ThreatLevel"],
+                                    SigmaRuleMatch = analysis["SigmaRule"],
+                                    MitreAttack = analysis["MitreAttack"]
                                 };
                                 entries.Add(entry);
                                 eventCount++;
-                                
-                                if (eventCount % 1000 == 0 && logBuffer != null)
-                                    WriteLog(logBuffer, logFile, string.Format("{0}: {1} events processed", logName, eventCount));
                             }
-                            catch (Exception ex)
+                            catch
                             {
                                 errorCount++;
-                                if (errorCount <= 5 && logBuffer != null && !(ex is System.IO.FileNotFoundException))
-                                    WriteLog(logBuffer, logFile, string.Format("{0}: Event error: {1}", logName, ex.Message));
                             }
                             finally
                             {
                                 eventRecord.Dispose();
                             }
                         }
-                        
-                        if (logBuffer != null)
-                            WriteLog(logBuffer, logFile, string.Format("{0}: Finished reading (null returned)", logName));
                     }
                 }
                 var dur = (DateTime.Now - logStart).TotalSeconds;
                 accessResults[logName] = string.Format("Success - {0} events in {1:F1}s (Errors: {2})", eventCount, dur, errorCount);
-                if (logBuffer != null)
-                    WriteLog(logBuffer, logFile, string.Format("{0}: {1}", logName, accessResults[logName]));
             }
             catch (Exception ex)
             {
                 accessResults[logName] = string.Format("Error - {0}", ex.Message);
-                if (logBuffer != null)
-                    WriteLog(logBuffer, logFile, string.Format("{0}: EXCEPTION - {1}: {2}", logName, ex.GetType().Name, ex.Message));
             }
         }
-
-        var totalDur = (DateTime.Now - start).TotalSeconds;
-        if (logBuffer != null)
-            WriteLog(logBuffer, logFile, string.Format("ParseEventLogs completed in {0:F1}s, {1} total entries", totalDur, entries.Count));
 
         return new Dictionary<string, object>
         {
@@ -175,29 +153,64 @@ public class EventLogAnalyzer
         };
     }
 
-    private static string AnalyzeEvent(EventRecord eventRecord)
+    private static Dictionary<string, string> AnalyzeEvent(EventRecord eventRecord, string message)
     {
         var tags = new List<string>();
+        var sigmaRules = new List<string>();
+        var mitreTags = new List<string>();
+        string threatLevel = "Normal";
         int eventId = eventRecord.Id;
         string provider = eventRecord.ProviderName ?? "";
         string level = eventRecord.LevelDisplayName ?? "";
+        string eventXml = "";
+        
+        try { eventXml = eventRecord.ToXml(); } catch { }
 
         if (provider.Contains("Microsoft-Windows-Security-Auditing") || eventRecord.LogName == "Security")
         {
-            if (eventId == 4625) tags.Add("FailedLogon");
+            if (eventId == 4625) { tags.Add("FailedLogon"); threatLevel = "Suspicious"; }
             if (eventId == 4624) tags.Add("SuccessfulLogon");
-            if (eventId == 4740) tags.Add("AccountLockout");
-            if (eventId == 4672) tags.Add("PrivilegeEscalation");
+            if (eventId == 4740) { tags.Add("AccountLockout"); threatLevel = "Suspicious"; }
+            if (eventId == 4672) { tags.Add("PrivilegeEscalation"); threatLevel = "Suspicious"; }
             if (eventId == 4688) tags.Add("ProcessCreation");
-            if (eventId == 4697) tags.Add("ServiceInstallation");
-            if (eventId == 4698 || eventId == 4702) tags.Add("ScheduledTask");
+            if (eventId == 4697) { tags.Add("ServiceInstallation"); threatLevel = "Suspicious"; }
+            if (eventId == 4698 || eventId == 4702) { tags.Add("ScheduledTask"); threatLevel = "Suspicious"; }
+            if (eventId == 4648) { tags.Add("ExplicitCredentialUse"); threatLevel = "Suspicious"; }
+            if (eventId == 4673) { tags.Add("SensitivePrivilegeUse"); threatLevel = "Suspicious"; }
+            if (eventId == 4703) { tags.Add("TokenRightAdjusted"); threatLevel = "Suspicious"; }
+            if (eventId == 4719) { tags.Add("SystemAuditPolicyChanged"); threatLevel = "Malicious"; }
+            if (eventId == 4720) { tags.Add("UserAccountCreated"); threatLevel = "Suspicious"; }
+            if (eventId == 4724) { tags.Add("PasswordResetAttempt"); threatLevel = "Suspicious"; }
+            if (eventId == 4728) { tags.Add("SecurityGroupMemberAdded"); threatLevel = "Suspicious"; }
+            if (eventId == 4732) { tags.Add("SecurityGroupMemberRemoved"); threatLevel = "Suspicious"; }
+            if (eventId == 4738) { tags.Add("UserAccountChanged"); threatLevel = "Suspicious"; }
+            if (eventId == 4741) { tags.Add("ComputerAccountCreated"); threatLevel = "Suspicious"; }
+            if (eventId == 4742) { tags.Add("ComputerAccountChanged"); threatLevel = "Suspicious"; }
+            if (eventId == 4756) { tags.Add("SecurityGroupCreated"); threatLevel = "Suspicious"; }
+            if (eventId == 4757) { tags.Add("SecurityGroupChanged"); threatLevel = "Suspicious"; }
+            if (eventId == 4767) { tags.Add("UserAccountUnlocked"); threatLevel = "Suspicious"; }
+            if (eventId == 4768) { tags.Add("KerberosAuthTicketRequested"); threatLevel = "Suspicious"; }
+            if (eventId == 4769) { tags.Add("KerberosServiceTicketRequested"); threatLevel = "Suspicious"; }
+            if (eventId == 4776) { tags.Add("CredentialValidation"); threatLevel = "Suspicious"; }
+            if (eventId == 4798) { tags.Add("UserAccountEnumeration"); threatLevel = "Suspicious"; }
+            if (eventId == 5140) { tags.Add("NetworkShareAccessed"); threatLevel = "Suspicious"; }
+            if (eventId == 5142) { tags.Add("NetworkShareAdded"); threatLevel = "Suspicious"; }
+            if (eventId == 5143) { tags.Add("NetworkShareModified"); threatLevel = "Suspicious"; }
+            if (eventId == 5144) { tags.Add("NetworkShareRemoved"); threatLevel = "Suspicious"; }
+            if (eventId == 5145) { tags.Add("NetworkShareObjectChecked"); threatLevel = "Suspicious"; }
+            if (eventId == 5156) { tags.Add("WindowsFilteringPlatformConnectionAllowed"); }
+            if (eventId == 5157) { tags.Add("WindowsFilteringPlatformConnectionBlocked"); threatLevel = "Suspicious"; }
+            if (eventId == 5158) { tags.Add("WindowsFilteringPlatformConnectionPermitted"); }
             if (eventId == 4624)
             {
                 try
                 {
                     var xml = eventRecord.ToXml();
                     if (xml.Contains("LogonType") && xml.Contains("LogonType>3</"))
+                    {
                         tags.Add("NetworkLogon");
+                        if (threatLevel == "Normal") threatLevel = "Suspicious";
+                    }
                 }
                 catch { }
             }
@@ -205,9 +218,13 @@ public class EventLogAnalyzer
 
         if (eventRecord.LogName == "System")
         {
-            if (eventId == 7045) tags.Add("ServiceModified");
-            if (eventId == 219) tags.Add("DriverLoad");
+            if (eventId == 7045) { tags.Add("ServiceModified"); threatLevel = "Suspicious"; }
+            if (eventId == 219) { tags.Add("DriverLoad"); threatLevel = "Suspicious"; }
             if (eventId == 1074 || eventId == 1076) tags.Add("SystemShutdown");
+            if (eventId == 6008) { tags.Add("UnexpectedShutdown"); threatLevel = "Suspicious"; }
+            if (eventId == 7034) { tags.Add("ServiceCrashed"); threatLevel = "Suspicious"; }
+            if (eventId == 7035) { tags.Add("ServiceStarted"); }
+            if (eventId == 7036) { tags.Add("ServiceStateChanged"); }
         }
 
         if (eventRecord.LogName == "Application")
@@ -217,9 +234,131 @@ public class EventLogAnalyzer
         }
 
         if (eventId >= 1100 && eventId <= 1102)
+        {
             tags.Add("EventLogManipulation");
+            threatLevel = "Malicious";
+        }
 
-        return tags.Count > 0 ? string.Join(";", tags) : "Normal";
+        var sigmaMatch = MatchSigmaRules(eventRecord, message, eventXml);
+        if (sigmaMatch != null)
+        {
+            sigmaRules.Add(sigmaMatch["RuleTitle"]);
+            if (sigmaMatch.ContainsKey("MitreAttack"))
+            {
+                mitreTags.Add(sigmaMatch["MitreAttack"]);
+            }
+            if (sigmaMatch.ContainsKey("ThreatLevel"))
+            {
+                string sigmaThreat = sigmaMatch["ThreatLevel"];
+                if (sigmaThreat == "Malicious" || (sigmaThreat == "Suspicious" && threatLevel == "Normal"))
+                {
+                    threatLevel = sigmaThreat;
+                }
+            }
+        }
+
+        return new Dictionary<string, string>
+        {
+            { "Tags", tags.Count > 0 ? string.Join(";", tags) : "Normal" },
+            { "ThreatLevel", threatLevel },
+            { "SigmaRule", sigmaRules.Count > 0 ? string.Join(";", sigmaRules) : "" },
+            { "MitreAttack", mitreTags.Count > 0 ? string.Join(";", mitreTags) : "" }
+        };
+    }
+
+    private static Dictionary<string, string> MatchSigmaRules(EventRecord eventRecord, string message, string eventXml)
+    {
+        int eventId = eventRecord.Id;
+        string logName = eventRecord.LogName ?? "";
+        string provider = eventRecord.ProviderName ?? "";
+        string msgLower = (message ?? "").ToLower();
+        string xmlLower = (eventXml ?? "").ToLower();
+
+        if (logName == "Security" || provider.Contains("Microsoft-Windows-Security-Auditing"))
+        {
+            if (eventId == 4688)
+            {
+                if (xmlLower.Contains("commandline") || msgLower.Contains("command line"))
+                {
+                    string cmdLine = ExtractXmlValue(eventXml, "CommandLine") ?? "";
+                    string processName = ExtractXmlValue(eventXml, "NewProcessName") ?? "";
+                    cmdLine = cmdLine.ToLower();
+                    processName = processName.ToLower();
+
+                    if (processName.EndsWith("\\net.exe") || cmdLine.Contains("net "))
+                    {
+                        if (cmdLine.Contains("user") || cmdLine.Contains("group")) return CreateRule("Net User/Group", "T1136", "Suspicious");
+                        if (cmdLine.Contains("share") || cmdLine.Contains("use")) return CreateRule("Net Share", "T1135", "Suspicious");
+                        return CreateRule("Net.exe Execution", "T1018", "Suspicious");
+                    }
+                    if (processName.EndsWith("\\whoami.exe") || cmdLine.Contains("whoami")) return CreateRule("Whoami Execution", "T1033", "Suspicious");
+                    if (processName.EndsWith("\\systeminfo.exe") || cmdLine.Contains("systeminfo")) return CreateRule("Systeminfo Execution", "T1082", "Suspicious");
+                    if (processName.EndsWith("\\tasklist.exe") || cmdLine.Contains("tasklist")) return CreateRule("Tasklist Execution", "T1057", "Suspicious");
+                    if (processName.EndsWith("\\nslookup.exe") || cmdLine.Contains("nslookup")) return CreateRule("Nslookup Execution", "T1018", "Suspicious");
+                    if (processName.EndsWith("\\ping.exe") && (cmdLine.Contains(" -n ") || cmdLine.Contains(" -t "))) return CreateRule("Ping Sweep", "T1018", "Suspicious");
+                    if (processName.EndsWith("\\powershell.exe") || processName.EndsWith("\\pwsh.exe"))
+                    {
+                        if (cmdLine.Contains("-encodedcommand") || cmdLine.Contains("-enc ") || cmdLine.Contains("-e ")) return CreateRule("PowerShell Encoded", "T1059.001", "Malicious");
+                        if (cmdLine.Contains("bypass") || cmdLine.Contains("-nop")) return CreateRule("PowerShell Bypass", "T1059.001", "Suspicious");
+                        if (cmdLine.Contains("downloadstring") || cmdLine.Contains("downloadfile")) return CreateRule("PowerShell Download", "T1059.001;T1105", "Malicious");
+                    }
+                    if (processName.EndsWith("\\cmd.exe") && (cmdLine.Contains("/c") || cmdLine.Contains("/k")))
+                    {
+                        if (cmdLine.Contains("certutil") && (cmdLine.Contains("-urlcache") || cmdLine.Contains("-decode"))) return CreateRule("Certutil Download", "T1105", "Malicious");
+                        if (cmdLine.Contains("bitsadmin") && (cmdLine.Contains("/transfer") || cmdLine.Contains("/download"))) return CreateRule("BITSAdmin Download", "T1105", "Malicious");
+                    }
+                    if ((processName.EndsWith("\\wmic.exe") || processName.EndsWith("\\wmic")) && (cmdLine.Contains("process call create") || cmdLine.Contains("get process"))) return CreateRule("WMIC Process", "T1047", "Suspicious");
+                    if ((processName.EndsWith("\\schtasks.exe") || cmdLine.Contains("schtasks")) && (cmdLine.Contains("/create") || cmdLine.Contains("/run"))) return CreateRule("Scheduled Task", "T1053.005", "Suspicious");
+                    if ((processName.EndsWith("\\reg.exe") || cmdLine.Contains("reg ")) && (cmdLine.Contains("add") || cmdLine.Contains("delete"))) return CreateRule("Registry Modification", "T1112", "Suspicious");
+                    if ((processName.EndsWith("\\sc.exe") || cmdLine.Contains("sc ")) && (cmdLine.Contains("create") || cmdLine.Contains("start"))) return CreateRule("Service Creation", "T1543.003", "Suspicious");
+                }
+            }
+
+            if (eventId == 4624)
+            {
+                string lt = ExtractXmlValue(eventXml, "LogonType") ?? "";
+                string un = ExtractXmlValue(eventXml, "TargetUserName") ?? "";
+                if (lt == "3" && un.ToLower() != "system" && un.ToLower() != "local service" && un.ToLower() != "network service") return CreateRule("Network Logon", "T1078", "Suspicious");
+            }
+            if (eventId == 4625)
+            {
+                string un = ExtractXmlValue(eventXml, "TargetUserName") ?? "";
+                if (un.ToLower() == "administrator" || un.ToLower() == "admin") return CreateRule("Failed Admin Logon", "T1078", "Suspicious");
+            }
+            if (eventId == 4648) return CreateRule("Explicit Credential Use", "T1078", "Suspicious");
+            if (eventId == 4672) return CreateRule("Privilege Escalation", "T1078", "Suspicious");
+            if (eventId == 4697) return CreateRule("Service Installation", "T1543.003", "Suspicious");
+            if (eventId == 4698 || eventId == 4702) return CreateRule("Scheduled Task", "T1053.005", "Suspicious");
+            if (eventId == 4719) return CreateRule("Audit Policy Change", "T1562.008", "Malicious");
+            if (eventId == 4720) return CreateRule("User Account Created", "T1136", "Suspicious");
+            if (eventId == 4728) return CreateRule("Group Member Added", "T1078", "Suspicious");
+            if (eventId == 5142) return CreateRule("Network Share Added", "T1135", "Suspicious");
+            if (eventId == 5157) return CreateRule("WFP Blocked", "T1562.004", "Suspicious");
+        }
+
+        if (logName == "System")
+        {
+            if (eventId == 7045) return CreateRule("Service Modified", "T1543.003", "Suspicious");
+            if (eventId == 219) return CreateRule("Driver Load", "T1547.009", "Suspicious");
+        }
+
+        return null;
+    }
+
+    private static string ExtractXmlValue(string xml, string tagName)
+    {
+        if (string.IsNullOrEmpty(xml)) return null;
+        try
+        {
+            int startIdx = xml.IndexOf(string.Format("<{0}>", tagName), StringComparison.OrdinalIgnoreCase);
+            if (startIdx < 0) return null;
+            startIdx += tagName.Length + 2;
+            int endIdx = xml.IndexOf(string.Format("</{0}>", tagName), startIdx, StringComparison.OrdinalIgnoreCase);
+            if (endIdx < 0) return null;
+            return xml.Substring(startIdx, endIdx - startIdx);
+        }
+        catch { }
+        return null;
     }
 
     private static string SanitizeMessage(string message)
@@ -243,57 +382,25 @@ public class EventLogAnalyzer
 
     public static string ExportToCsv(List<EventLogEntry> entries, string outputPath = null, StringBuilder logBuffer = null, string logFile = null)
     {
-        var start = DateTime.Now;
-        if (logBuffer != null)
-            WriteLog(logBuffer, logFile, string.Format("ExportToCsv started - {0} entries", entries.Count));
-        
         var csv = new StringBuilder();
-        csv.AppendLine("LogName,TimeCreated,EventId,Level,ProviderName,MachineName,UserId,CorrelationTag,Message");
-
-        int rowCount = 0;
+        csv.AppendLine("LogName,TimeCreated,EventId,Level,ProviderName,MachineName,UserId,ThreatLevel,CorrelationTag,SigmaRuleMatch,MitreAttack,Message");
         foreach (var entry in entries)
         {
             try
             {
-                var message = SanitizeMessage(entry.Message ?? "");
-                message = message.Replace("\"", "\"\"");
-                csv.AppendFormat("\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\",\"{5}\",\"{6}\",\"{7}\",\"{8}\"",
+                var msg = SanitizeMessage(entry.Message ?? "").Replace("\"", "\"\"");
+                csv.AppendFormat("\"{0}\",\"{1}\",\"{2}\",\"{3}\",\"{4}\",\"{5}\",\"{6}\",\"{7}\",\"{8}\",\"{9}\",\"{10}\",\"{11}\"\r\n",
                     entry.LogName ?? "", entry.TimeCreated.ToString("yyyy-MM-ddTHH:mm:ss.fff"), entry.EventId,
                     entry.Level ?? "", entry.ProviderName ?? "", entry.MachineName ?? "",
-                    entry.UserId ?? "", entry.CorrelationTag ?? "", message);
-                csv.AppendLine();
-                rowCount++;
-                
-                if (rowCount % 10000 == 0 && logBuffer != null)
-                    WriteLog(logBuffer, logFile, string.Format("CSV: {0} rows written", rowCount));
+                    entry.UserId ?? "", entry.ThreatLevel ?? "Normal", entry.CorrelationTag ?? "",
+                    entry.SigmaRuleMatch ?? "", entry.MitreAttack ?? "", msg);
             }
-            catch (Exception ex)
-            {
-                if (logBuffer != null && rowCount < 10)
-                    WriteLog(logBuffer, logFile, string.Format("CSV row error: {0}", ex.Message));
-            }
+            catch { }
         }
-
-        if (logBuffer != null)
-            WriteLog(logBuffer, logFile, string.Format("CSV: All {0} rows formatted, writing file...", rowCount));
-
         if (!string.IsNullOrEmpty(outputPath))
         {
-            try
-            {
-                File.WriteAllText(outputPath, csv.ToString(), new System.Text.UTF8Encoding(false));
-                var dur = (DateTime.Now - start).TotalSeconds;
-                var result = string.Format("CSV exported: {0} rows in {1:F2}s", rowCount, dur);
-                if (logBuffer != null)
-                    WriteLog(logBuffer, logFile, result);
-                return string.Format("CSV exported to: {0}", outputPath);
-            }
-            catch (Exception ex)
-            {
-                if (logBuffer != null)
-                    WriteLog(logBuffer, logFile, string.Format("CSV write FAILED: {0}", ex.Message));
-                throw;
-            }
+            File.WriteAllText(outputPath, csv.ToString(), new System.Text.UTF8Encoding(false));
+            return string.Format("CSV exported to: {0}", outputPath);
         }
         return csv.ToString();
     }
@@ -302,10 +409,7 @@ public class EventLogAnalyzer
 
 Add-Type -TypeDefinition $csharpCode -Language CSharp
 
-# ===============================================================
-# CONFIGURATION - Modify the value below to change the time range
-# ===============================================================
-$Days = 1  # Number of days to look back (e.g., 1 = last 24 hours, 7 = last week, 30 = last month, 0 = all events)
+$Days = 3
 
 $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $logFile = "C:\windows\temp\EventLogAnalysis_${timestamp}.log"
@@ -327,13 +431,10 @@ $endTime = Get-Date
 Write-Host "[*] Parsing event logs..." -ForegroundColor Yellow
 try {
     $result = [EventLogAnalyzer]::ParseEventLogs($logNames, $startTime, $endTime, $logBuffer, $logFile)
-    [EventLogAnalyzer]::WriteLog($logBuffer, $logFile, "ParseEventLogs returned successfully")
     $entries = $result["Entries"]
     $accessResults = $result["AccessResults"]
-    [EventLogAnalyzer]::WriteLog($logBuffer, $logFile, "Extracted $($entries.Count) entries from result")
 }
 catch {
-    [EventLogAnalyzer]::WriteLog($logBuffer, $logFile, "ParseEventLogs ERROR: $($_.Exception.Message)")
     throw
 }
 
@@ -359,23 +460,35 @@ if ($correlationSummary) {
     $correlationSummary | Format-Table -AutoSize
 }
 
-[EventLogAnalyzer]::WriteLog($logBuffer, $logFile, "Starting CSV export...")
-Write-Host "`n[*] Exporting to CSV..." -ForegroundColor Yellow
+$sigmaSummary = $entries | Where-Object { $_.SigmaRuleMatch -and $_.SigmaRuleMatch -ne "" } | 
+    Group-Object SigmaRuleMatch | 
+    Select-Object Name, Count | 
+    Sort-Object Count -Descending
 
+if ($sigmaSummary) {
+    Write-Host "`n[*] Sigma Rule Matches:" -ForegroundColor Cyan
+    $sigmaSummary | Format-Table -AutoSize
+}
+
+$mitreSummary = $entries | Where-Object { $_.MitreAttack -and $_.MitreAttack -ne "" } | 
+    ForEach-Object { $_.MitreAttack -split ';' } | 
+    Group-Object | 
+    Select-Object Name, Count | 
+    Sort-Object Count -Descending
+
+if ($mitreSummary) {
+    Write-Host "`n[*] MITRE ATT&CK Techniques Detected:" -ForegroundColor Cyan
+    $mitreSummary | Format-Table -AutoSize
+}
+
+Write-Host "`n[*] Exporting to CSV..." -ForegroundColor Yellow
 try {
     $exportResult = [EventLogAnalyzer]::ExportToCsv($entries, $outputFile, $logBuffer, $logFile)
-    [EventLogAnalyzer]::WriteLog($logBuffer, $logFile, "CSV export completed successfully")
     Write-Host "[+] $exportResult" -ForegroundColor Green
-    Write-Host "[+] CSV file location: $outputFile" -ForegroundColor Green
 }
 catch {
-    [EventLogAnalyzer]::WriteLog($logBuffer, $logFile, "CSV export ERROR: $($_.Exception.Message)")
     Write-Host "[!] CSV export failed: $($_.Exception.Message)" -ForegroundColor Red
 }
-
-Write-Host "[+] Log file location: $logFile" -ForegroundColor Green
-
-[EventLogAnalyzer]::WriteLog($logBuffer, $logFile, "=== Analysis Complete ===")
 [System.IO.File]::WriteAllText($logFile, $logBuffer.ToString(), [System.Text.UTF8Encoding]::new($false))
 
 return @{
@@ -384,14 +497,10 @@ return @{
     OutputFile = $outputFile
     LogFile = $logFile
     CorrelationSummary = $correlationSummary
+    SigmaSummary = $sigmaSummary
+    MitreSummary = $mitreSummary
     AccessResults = $accessResults
 }
 
-# ==================================================================
-# CONFIGURATION – Update the value below to modify the time range. 
-# To change the overall scope, scroll up in the script. By default,
-# the time range is set to 1 day.
-# $Days = 1
-# ==================================================================
 # log file location: C:\windows\temp\EventLogAnalysis_(date).log
 # csv file location: C:\windows\temp\EventLogAnalysis_(date).csv
