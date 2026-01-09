@@ -79,50 +79,50 @@ foreach ($task in $tasks) {
     }
 }
 
-# Optional: Clean up orphaned TaskCache registry entries with permission handling
+# Optional: Clean up orphaned TaskCache registry entries with proper permission handling
 function Remove-TaskCacheEntry {
     param([string]$TaskName)
     
-    $baseKey = "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache"
-    $treePath = "$baseKey\TREE\$TaskName"
-    
-    # Check if the key exists
-    if (Test-Path "Registry::$treePath") {
-        # Get the GUID for related entries
-        $taskId = $null
-        try {
-            $taskId = (Get-ItemProperty -Path "Registry::$treePath" -Name "Id" -ErrorAction SilentlyContinue).Id
-        } catch {}
+    try {
+        $baseKeyPath = "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache"
+        $treePath = "$baseKeyPath\TREE\$TaskName"
         
-        # Take ownership and grant permissions using reg.exe and takeown
-        takeown /f "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\$TaskName" /r /d Y 2>$null | Out-Null
+        # Open the registry key with HKLM
+        $regKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("$baseKeyPath\TREE\$TaskName", $false)
         
-        # Grant full control to Administrators
-        icacls "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\$TaskName" /grant Administrators:F /t 2>$null | Out-Null
-        
-        # Remove associated GUID entries first if found
-        if ($taskId) {
-            $guidString = "{$taskId}"
-            $relatedPaths = @(
-                "$baseKey\Tasks\$guidString",
-                "$baseKey\Plain\$guidString",
-                "$baseKey\Boot\$guidString",
-                "$baseKey\Logon\$guidString"
-            )
-            foreach ($relPath in $relatedPaths) {
-                takeown /f "$relPath" /r /d Y 2>$null | Out-Null
-                icacls "$relPath" /grant Administrators:F /t 2>$null | Out-Null
-                reg delete "$relPath" /f 2>$null | Out-Null
+        if ($regKey) {
+            # Get the GUID for related entries
+            $taskId = $null
+            try {
+                $taskId = $regKey.GetValue("Id")
+            } catch {}
+            $regKey.Close()
+            
+            # Remove associated GUID entries first if found
+            if ($taskId) {
+                $guidString = "{$taskId}"
+                $relatedSubKeys = @(
+                    "$baseKeyPath\Tasks\$guidString",
+                    "$baseKeyPath\Plain\$guidString",
+                    "$baseKeyPath\Boot\$guidString",
+                    "$baseKeyPath\Logon\$guidString"
+                )
+                foreach ($subKey in $relatedSubKeys) {
+                    try {
+                        [Microsoft.Win32.Registry]::LocalMachine.DeleteSubKeyTree($subKey, $false)
+                    } catch {}
+                }
+            }
+            
+            # Now delete the TREE entry
+            try {
+                [Microsoft.Win32.Registry]::LocalMachine.DeleteSubKeyTree($treePath, $false)
+            } catch {
+                Write-Host "Warning: Failed to remove orphaned registry key -> $TaskName (Access Denied - requires SYSTEM privileges)"
             }
         }
-        
-        # Now delete the TREE entry
-        reg delete "$treePath" /f 2>$null | Out-Null
-        
-        # Verify removal
-        if (Test-Path "Registry::$treePath") {
-            Write-Host "Warning: Failed to remove orphaned registry key -> $TaskName"
-        }
+    } catch {
+        # Silently continue if key doesn't exist or can't be accessed
     }
 }
 
