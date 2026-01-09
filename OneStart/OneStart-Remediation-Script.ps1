@@ -79,7 +79,6 @@ foreach ($task in $tasks) {
     }
 }
 
-$taskCacheKeys = @(
 # Optional: Clean up orphaned TaskCache registry entries (normally handled by Unregister-ScheduledTask)
 $taskCacheKeys = @(
     "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\OneStart*",
