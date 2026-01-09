@@ -79,40 +79,60 @@ foreach ($task in $tasks) {
     }
 }
 
-# Optional: Clean up orphaned TaskCache registry entries using reg.exe for reliable removal
+# Optional: Clean up orphaned TaskCache registry entries with permission handling
+function Remove-TaskCacheEntry {
+    param([string]$TaskName)
+    
+    $baseKey = "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache"
+    $treePath = "$baseKey\TREE\$TaskName"
+    
+    # Check if the key exists
+    if (Test-Path "Registry::$treePath") {
+        # Get the GUID for related entries
+        $taskId = $null
+        try {
+            $taskId = (Get-ItemProperty -Path "Registry::$treePath" -Name "Id" -ErrorAction SilentlyContinue).Id
+        } catch {}
+        
+        # Take ownership and grant permissions using reg.exe and takeown
+        takeown /f "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\$TaskName" /r /d Y 2>$null | Out-Null
+        
+        # Grant full control to Administrators
+        icacls "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\$TaskName" /grant Administrators:F /t 2>$null | Out-Null
+        
+        # Remove associated GUID entries first if found
+        if ($taskId) {
+            $guidString = "{$taskId}"
+            $relatedPaths = @(
+                "$baseKey\Tasks\$guidString",
+                "$baseKey\Plain\$guidString",
+                "$baseKey\Boot\$guidString",
+                "$baseKey\Logon\$guidString"
+            )
+            foreach ($relPath in $relatedPaths) {
+                takeown /f "$relPath" /r /d Y 2>$null | Out-Null
+                icacls "$relPath" /grant Administrators:F /t 2>$null | Out-Null
+                reg delete "$relPath" /f 2>$null | Out-Null
+            }
+        }
+        
+        # Now delete the TREE entry
+        reg delete "$treePath" /f 2>$null | Out-Null
+        
+        # Verify removal
+        if (Test-Path "Registry::$treePath") {
+            Write-Host "Warning: Failed to remove orphaned registry key -> $TaskName"
+        }
+    }
+}
+
 $taskCacheBasePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache"
 $taskNamePatterns = @("OneStart*", "PDFEditor*", "sys_component_health_*")
 
 foreach ($pattern in $taskNamePatterns) {
     $matchingKeys = Get-ChildItem -Path "$taskCacheBasePath\TREE" -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like $pattern }
     foreach ($key in $matchingKeys) {
-        $taskName = $key.PSChildName
-        
-        # Get the GUID associated with this task from the Id property
-        $taskId = (Get-ItemProperty -Path $key.PSPath -Name "Id" -ErrorAction SilentlyContinue).Id
-        
-        # If we found a GUID, remove associated entries in Tasks, Plain, Boot, and Logon first
-        if ($taskId) {
-            $guidString = "{$taskId}"
-            $relatedPaths = @(
-                "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\$guidString",
-                "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Plain\$guidString",
-                "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Boot\$guidString",
-                "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Logon\$guidString"
-            )
-            foreach ($relatedPath in $relatedPaths) {
-                reg delete "$relatedPath" /f 2>$null | Out-Null
-            }
-        }
-        
-        # Remove the TREE entry using reg.exe for more reliable deletion
-        $treePath = "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\$taskName"
-        reg delete "$treePath" /f 2>$null | Out-Null
-        
-        # Verify removal
-        if (Test-Path -Path $key.PSPath) {
-            Write-Host "Warning: Failed to remove orphaned registry key -> $taskName"
-        }
+        Remove-TaskCacheEntry -TaskName $key.PSChildName
     }
 }
 
