@@ -80,16 +80,15 @@ foreach ($task in $tasks) {
 }
 
 # Optional: Clean up orphaned TaskCache registry entries (normally handled by Unregister-ScheduledTask)
-$taskCacheKeys = @(
-    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\OneStart*",
-    "Registry:: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\PDFEditor*",
-    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\sys_component_health_*"
-)
-foreach ($taskCacheKey in $taskCacheKeys) {
-    if (Test-Path -Path $taskCacheKey) {
-        Remove-Item $taskCacheKey -Recurse -ErrorAction SilentlyContinue
-        if (Test-Path -Path $taskCacheKey) {
-            Write-Host "Warning: Orphaned registry key found -> $taskCacheKey"
+$taskCacheBasePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE"
+$taskNamePatterns = @("OneStart*", "PDFEditor*", "sys_component_health_*")
+
+foreach ($pattern in $taskNamePatterns) {
+    $matchingKeys = Get-ChildItem -Path $taskCacheBasePath -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like $pattern }
+    foreach ($key in $matchingKeys) {
+        Remove-Item -Path $key.PSPath -Recurse -ErrorAction SilentlyContinue
+        if (Test-Path -Path $key.PSPath) {
+            Write-Host "Warning: Failed to remove orphaned registry key -> $($key.PSPath)"
         }
     }
 }
