@@ -69,7 +69,6 @@ $tasks = @(
     "C:\Windows\System32\Tasks\PDFEditorScheduledTask",
     "C:\Windows\System32\Tasks\PDFEditorUScheduledTask",
     "C:\Windows\System32\Tasks\sys_component_health_*"
-
 )
 foreach ($task in $tasks) {
     if (Test-Path -Path $task) {
@@ -81,18 +80,17 @@ foreach ($task in $tasks) {
 }
 
 $taskCacheKeys = @(
-    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\OneStartAutoLaunchTask*",
-    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\OneStartUser",
-    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\PDFEditorScheduledTask",
-    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\PDFEditorUScheduledTask",
-    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\sys_component_health_*",
-    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{88E532D6-7FD4-4229-B0E8-5E196DBF78B2}"
+# Optional: Clean up orphaned TaskCache registry entries (normally handled by Unregister-ScheduledTask)
+$taskCacheKeys = @(
+    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\OneStart*",
+    "Registry:: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\PDFEditor*",
+    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\sys_component_health_*"
 )
 foreach ($taskCacheKey in $taskCacheKeys) {
     if (Test-Path -Path $taskCacheKey) {
         Remove-Item $taskCacheKey -Recurse -ErrorAction SilentlyContinue
         if (Test-Path -Path $taskCacheKey) {
-            Write-Host "Failed to remove OneStart -> $taskCacheKey"
+            Write-Host "Warning: Orphaned registry key found -> $taskCacheKey"
         }
     }
 }
