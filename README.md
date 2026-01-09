@@ -28,7 +28,43 @@ The purpose of my scripts is to assist a SOC or Incident Response Analyst with t
 - [Win-PacketCapture](https://github.com/xephora/Threat-Remediation-Scripts/blob/main/Misc/Win-PacketCapture.ps1) - A guided script to generate a packet dump for analysis.
 - [jsonspection](https://github.com/xephora/Threat-Remediation-Scripts/tree/main/Misc/jsonspection) - JSONSpection is a utility designed to thoroughly inspect and enumerate JSON data structures. It helps you break down complex or nested JSON blobs, identify all key-value paths, and understand the overall schema and relationships within the data. This makes it useful for debugging APIs, analyzing logs, or preparing data for parsing and automation workflows.
 - [EvidenceCollection](https://github.com/xephora/Threat-Remediation-Scripts/blob/main/Manual_Scripts/Investigation/Win-EvidenceCollection.ps1) - This script collects common user document types—such as Word files, Excel spreadsheets, text files, PDFs, and emails—from a specified user’s Downloads, Documents, and Desktop directories. It automatically creates the C:\temp\SIRT directory (if it does not already exist) and copies all matching files into that location for centralized review, evidence preservation, or incident investigation. The file types, directories, and username can be customized to fit the needs of the case.
-- [Win-DmpEventLogs](https://github.com/xephora/Threat-Remediation-Scripts/blob/main/Misc/Win-DmpEventLogs.ps1) - Win-DmpEventLogs is an extremely useful forensic tool that allows you to dump Windows Event Logs within a specified time range: `1 = last 24 hours, 7 = last week, 30 = last month, 0 = all events.`
+- [Win-DmpEventLogs](https://github.com/xephora/Threat-Remediation-Scripts/blob/main/Misc/Win-DmpEventLogs.ps1) - Win-DmpEventLogs is an extremely useful forensic tool that allows you to dump Windows Event Logs within a specified time range: `1 = last 24 hours, 7 = last week, 30 = last month, 0 = all events.`. Basic rules have been implemented to assist in identification.
+
+```
+Process Execution Rules (Event ID 4688)
+Net.exe Execution - General net.exe usage
+Net User/Group - Net user/group commands
+Net Share - Net share/use commands
+Whoami Execution - Whoami command execution
+Systeminfo Execution - Systeminfo command
+Tasklist Execution - Tasklist command
+Nslookup Execution - Nslookup command
+Ping Sweep - Ping with -n or -t flags
+PowerShell Encoded - PowerShell with encoded commands
+PowerShell Bypass - PowerShell bypass techniques
+PowerShell Download - PowerShell download strings
+Certutil Download - Certutil used for downloads
+BITSAdmin Download - BITSAdmin transfer/download
+WMIC Process - WMIC process execution
+Scheduled Task - Scheduled task creation/execution
+Registry Modification - Registry add/delete operations
+Service Creation - Service creation/start
+Authentication & Access Rules
+Network Logon - Network logon (LogonType 3)
+Failed Admin Logon - Failed logon to Administrator account
+Explicit Credential Use - Event ID 4648
+Privilege Escalation - Event ID 4672
+Account Management Rules
+User Account Created - Event ID 4720
+Group Member Added - Event ID 4728
+System Configuration Rules
+Service Installation - Event ID 4697
+Service Modified - Event ID 7045 (System log)
+Driver Load - Event ID 219 (System log)
+Audit Policy Change - Event ID 4719
+Network Share Added - Event ID 5142
+WFP Blocked - Windows Filtering Platform blocked connection (Event ID 5157)
+```
 
 ### Crowdstrike API Scripts
 
