@@ -5,6 +5,27 @@
 
 ## [Unreleased]
 
+## [v1.1.2] - 2026-01-012
+
+### Changed - OneStart
+**Script:** `OneStart/OneStart-Remediation-Script.ps1`  
+**Issue:** Processes are hard coded which increases maintenance time. 
+**Fix:** Replaced "Test-Path" with "Get-ChildItem".
+
+**Lines Changed:** 15-21
+
+**Code Changes:**
+
+Replaced Lines 15-21
+
+$process = Get-Process OneStart -ErrorAction SilentlyContinue
+if ($process) {
+    $process | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+$process = Get-Process UpdaterSetup -ErrorAction SilentlyContinue
+if ($process) {
+    $process | Stop-Process -Force -ErrorAction SilentlyContinue
+
 ---
 
 ## [v1.1.1] - 2026-01-09
@@ -17,9 +38,37 @@
 **Lines Changed:** 83-91 
 
 **Code Changes:**
+```diff
+$process = Get-Process OneStart -ErrorAction SilentlyContinue
+if ($process) {
+    $process | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+$process = Get-Process UpdaterSetup -ErrorAction SilentlyContinue
+if ($process) {
+    $process | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+---
+# Define target processes to terminate
+$processesToKill = @(
+    "OneStart",
+    "UpdaterSetup"
+)
 
-Replaced Logic in lines 83-91
-Replaces "Test-Path" with "Get-ChileItem"
+# Attempt to kill each target process and verify termination
+foreach ($processName in $processesToKill) {
+    $process = Get-Process -Name $processName -ErrorAction SilentlyContinue
+    if ($process) {
+        $process | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+        
+        # Verify the process was successfully terminated
+        $stillRunning = Get-Process -Name $processName -ErrorAction SilentlyContinue
+        if ($stillRunning) {
+            Write-Host "Failed to kill process -> $processName"
+        }
+    }
+}
+```
 
 ---
 

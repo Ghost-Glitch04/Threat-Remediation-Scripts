@@ -1,11 +1,53 @@
-$process = Get-Process OneStart -ErrorAction SilentlyContinue
-if ($process) {
-    $process | Stop-Process -Force -ErrorAction SilentlyContinue
+# ============================================================ #
+# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% #
+# <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><> #
+# << --- OneStart Remediation Script --- >> #
+# <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><> #
+# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% #
+# ============================================================ #
+
+# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% #
+# <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><> #
+# --- Kill Processes --- #
+# <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><> #
+# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% #
+
+# &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+# -- Define Variables --
+# &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+# Define target processes to terminate
+# Define target processes to terminate
+$processesToKill = @(
+    "OneStartService",
+    "OneStartAutoLaunch",
+    "OneStartCrashHandler",
+    "OneStartUpdater",
+    "OneStartBrowser",
+    "PDFEditor",
+    "PDFEditorService",
+    "PDFEditorUpdater"
+)
+
+# &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+# -- Kill Target Processes --
+# &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+# Attempt to kill each target process and verify termination
+foreach ($processName in $processesToKill) {
+    $process = Get-Process -Name $processName -ErrorAction SilentlyContinue
+    if ($process) {
+        $process | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+        
+        # Verify the process was successfully terminated
+        $stillRunning = Get-Process -Name $processName -ErrorAction SilentlyContinue
+        if ($stillRunning) {
+            Write-Host "Failed to kill process -> $processName"
+        }
+    }
 }
-$process = Get-Process UpdaterSetup -ErrorAction SilentlyContinue
-if ($process) {
-    $process | Stop-Process -Force -ErrorAction SilentlyContinue
-}
+
 Start-Sleep -Seconds 2
 
 $user_list = Get-Item C:\users\* | Select-Object Name -ExpandProperty Name
