@@ -153,45 +153,105 @@ foreach ($key in $registryKeys) {
 $sid_list = Get-Item -Path "Registry::HKU\S-*" | Select-String -Pattern "S-\d-(?:\d+-){5,14}\d+" | ForEach-Object { $_.ToString().Trim() }
 foreach ($sid in $sid_list) {
     if ($sid -notlike "*_Classes*") {
-        $registryPaths = @(
-            "Registry::$sid\Software\Clients\StartMenuInternet\OneStart.IOZDYLUF4W5Y3MM3N77XMXEX6A",
+        # Dynamically remove OneStart browser registrations in StartMenuInternet
+        $startMenuPath = "Registry::$sid\Software\Clients\StartMenuInternet"
+        if (Test-Path $startMenuPath) {
+            Get-ChildItem $startMenuPath -ErrorAction SilentlyContinue | 
+                Where-Object { $_.PSChildName -like "OneStart.*" } |
+                ForEach-Object {
+                    Remove-Item $_.PSPath -Recurse -ErrorAction SilentlyContinue
+                    if (Test-Path $_.PSPath) {
+                        Write-Host "Failed to remove OneStart -> $($_.PSPath)"
+                    }
+                }
+        }
+
+        # Remove static base paths
+        $staticPaths = @(
             "Registry::$sid\Software\OneStart.ai",
-            "Registry::$sid\Software\Microsoft\Windows\CurrentVersion\Uninstall\OneStart.ai OneStart",
-            "Registry::$sid\Software\PDFEditor",
-            "Registry::$sid\Software\Clients\StartMenuInternet\OneStart.25VKDQVMIQGWARCLC23VYGDER4",
-            "Registry::$sid\Software\Classes\CLSID\{4DAC24AB-B340-4B7E-AD01-1504A7F59EEA}\LocalServer32",
-            "Registry::$sid\Software\Classes\CLSID\{75828ED1-7BE8-45D0-8950-AA85CBF74510}\LocalServer32",
-            "Registry::$sid\Software\Classes\CLSID\{A2C6CB58-C076-425C-ACB7-6D19D64428CD}\LocalServer32",
-            "Registry::$sid\Software\Classes\CLSID\{A45DDD96-C17C-50A3-BD69-8D064F864B24}\LocalServer32",
-            "Registry::$sid\Software\Classes\CLSID\{B5B6376D-5E59-5CB2-A34D-617C21A3A240}\LocalServer32",
-            "Registry::$sid\Software\Classes\OneStart.aiUpdate.Update3WebUser",
-            "Registry::$sid\Software\Software\Classes\OSBHTML.25VKDQVMIQGWARCLC23VYGDER4"
+            "Registry::$sid\Software\PDFEditor"
         )
-        foreach ($regPath in $registryPaths) {
-            if (Test-Path -Path $regPath) {
-                Remove-Item $regPath -Recurse -ErrorAction SilentlyContinue
-                if (Test-Path -Path $regPath) {
-                    Write-Host "Failed to remove OneStart -> $regPath"
+        foreach ($path in $staticPaths) {
+            if (Test-Path $path) {
+                Remove-Item $path -Recurse -ErrorAction SilentlyContinue
+                if (Test-Path $path) {
+                    Write-Host "Failed to remove OneStart -> $path"
                 }
             }
         }
-        $runKeys = @("OneStartUpdate", "OneStartBarUpdate","OneStartBar","OneStart", "OneStartChromium","OneStartUpdaterTaskUser*","PDFEditor*")
-        foreach ($runKey in $runKeys) {
-            $keypath = "Registry::$sid\Software\Microsoft\Windows\CurrentVersion\Run"
-            if ((Get-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue)) {
-                Remove-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue
-                if ((Get-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue)) {
-                    Write-Host "Failed to remove OneStart -> $keypath.$runKey"
+
+        # Dynamically remove OneStart uninstall entries
+        $uninstallPath = "Registry::$sid\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+        if (Test-Path $uninstallPath) {
+            Get-ChildItem $uninstallPath -ErrorAction SilentlyContinue |
+                Where-Object { $_.PSChildName -like "*OneStart*" } |
+                ForEach-Object {
+                    Remove-Item $_.PSPath -Recurse -ErrorAction SilentlyContinue
+                    if (Test-Path $_.PSPath) {
+                        Write-Host "Failed to remove OneStart -> $($_.PSPath)"
+                    }
+                }
+        }
+
+        # Dynamically find and remove CLSIDs associated with OneStart/PDFEditor
+        $clsidPath = "Registry::$sid\Software\Classes\CLSID"
+        if (Test-Path $clsidPath) {
+            $clsids = Get-ChildItem $clsidPath -ErrorAction SilentlyContinue
+            foreach ($clsid in $clsids) {
+                $localServerPath = "$($clsid.PSPath)\LocalServer32"
+                if (Test-Path $localServerPath) {
+                    $localServer = Get-ItemProperty -Path $localServerPath -Name "(default)" -ErrorAction SilentlyContinue
+                    if ($localServer.'(default)' -like "*OneStart*" -or $localServer.'(default)' -like "*PDFEditor*") {
+                        Remove-Item $clsid.PSPath -Recurse -ErrorAction SilentlyContinue
+                        if (Test-Path $clsid.PSPath) {
+                            Write-Host "Failed to remove OneStart CLSID -> $($clsid.PSPath)"
+                        }
+                    }
                 }
             }
         }
-        $runKeys = @("OneStart*")
-        foreach ($runKey in $runKeys) {
-            $keypath = "Registry::$sid\Software\RegisteredApplications"
-            if ((Get-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue)) {
-                Remove-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue
-                if ((Get-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue)) {
-                    Write-Host "Failed to remove OneStart -> $keypath.$runKey"
+
+        # Dynamically remove OneStart-related Classes entries
+        $classesPath = "Registry::$sid\Software\Classes"
+        if (Test-Path $classesPath) {
+            Get-ChildItem $classesPath -ErrorAction SilentlyContinue |
+                Where-Object { $_.PSChildName -like "OneStart*" -or $_.PSChildName -like "OSBHTML.*" } |
+                ForEach-Object {
+                    Remove-Item $_.PSPath -Recurse -ErrorAction SilentlyContinue
+                    if (Test-Path $_.PSPath) {
+                        Write-Host "Failed to remove OneStart -> $($_.PSPath)"
+                    }
+                }
+        }
+
+        # Clean up Run keys with pattern matching
+        $runKeyPath = "Registry::$sid\Software\Microsoft\Windows\CurrentVersion\Run"
+        if (Test-Path $runKeyPath) {
+            $runKeyPatterns = @("OneStart*", "PDFEditor*")
+            $runProps = Get-ItemProperty -Path $runKeyPath -ErrorAction SilentlyContinue
+            if ($runProps) {
+                $runProps.PSObject.Properties | Where-Object { 
+                    $propName = $_.Name
+                    $runKeyPatterns | Where-Object { $propName -like $_ }
+                } | ForEach-Object {
+                    Remove-ItemProperty -Path $runKeyPath -Name $_.Name -ErrorAction SilentlyContinue
+                    if ((Get-ItemProperty -Path $runKeyPath -Name $_.Name -ErrorAction SilentlyContinue)) {
+                        Write-Host "Failed to remove OneStart -> $runKeyPath.$($_.Name)"
+                    }
+                }
+            }
+        }
+
+        # Clean up RegisteredApplications with pattern matching
+        $regAppsPath = "Registry::$sid\Software\RegisteredApplications"
+        if (Test-Path $regAppsPath) {
+            $regAppsProps = Get-ItemProperty -Path $regAppsPath -ErrorAction SilentlyContinue
+            if ($regAppsProps) {
+                $regAppsProps.PSObject.Properties | Where-Object { $_.Name -like "OneStart*" } | ForEach-Object {
+                    Remove-ItemProperty -Path $regAppsPath -Name $_.Name -ErrorAction SilentlyContinue
+                    if ((Get-ItemProperty -Path $regAppsPath -Name $_.Name -ErrorAction SilentlyContinue)) {
+                        Write-Host "Failed to remove OneStart -> $regAppsPath.$($_.Name)"
+                    }
                 }
             }
         }
