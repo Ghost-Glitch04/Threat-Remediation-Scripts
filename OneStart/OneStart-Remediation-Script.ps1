@@ -16,7 +16,20 @@
 # -- Define Variables --
 # &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
-# Define target processes to terminate
+# Define an array of strings to be used when searching through likely locations of Indicators of Compromise.
+[array]$stringArray =@(
+    "OneStartService",
+    "OneStartAutoLaunch",
+    "OneStartCrashHandler",
+    "OneStartUpdater",
+    "OneStartBrowser",
+    "PDFEditor",
+    "PDFEditorService",
+    "PDFEditorUpdater"
+)
+
+
+
 # Define target processes to terminate
 $processesToKill = @(
     "OneStartService",
