@@ -437,7 +437,7 @@ if ($flashProcs) {
 
 # Check scheduled tasks
 Write-Detail "Checking for Flash scheduled tasks..."
-$flashTasks = Get-ScheduledTask | Where-Object { $_.TaskName -like "*Flash*" }
+$flashTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like "*Adobe Flash*" }
 if ($flashTasks) {
     Write-Fail "Flash scheduled tasks still exist:"
     foreach ($task in $flashTasks) {
