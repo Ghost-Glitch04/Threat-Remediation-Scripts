@@ -376,7 +376,21 @@ foreach ($taskName in $taskNames) {
             Write-Success "Removed task: $taskName"
         }
         catch {
-            Write-Fail "Could not remove task: $($_.Exception.Message)"
+            Write-Fail "PowerShell removal failed: $($_.Exception.Message)"
+            Write-Detail "Attempting alternative method with schtasks.exe..."
+            
+            try {
+                $process = Start-Process -FilePath "schtasks.exe" -ArgumentList "/delete /tn `"$taskName`" /f" -Wait -PassThru -NoNewWindow
+                
+                if ($process.ExitCode -eq 0) {
+                    Write-Success "Removed task via schtasks: $taskName"
+                } else {
+                    Write-Fail "schtasks failed with exit code: $($process.ExitCode)"
+                }
+            }
+            catch {
+                Write-Fail "schtasks execution error: $($_.Exception.Message)"
+            }
         }
     } else {
         Write-Detail "Task not found (OK): $taskName"
