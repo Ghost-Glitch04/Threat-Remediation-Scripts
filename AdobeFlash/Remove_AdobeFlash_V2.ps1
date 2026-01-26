@@ -167,6 +167,7 @@ $downloadPath = "$env:TEMP\$ProcName"
 
 # Try multiple URLs (Adobe changed their domain structure)
 $downloadUrls = @(
+    "https://fpdownload.macromedia.com/get/flashplayer/current/support/uninstall_flash_player.exe"
     "https://fpdownload.adobe.com/get/flashplayer/current/support/$ProcName",
     "http://fpdownload.adobe.com/get/flashplayer/current/support/$ProcName",
     "http://download.macromedia.com/get/flashplayer/current/support/$ProcName"
