@@ -186,7 +186,7 @@ if ($findings.Count -eq 0) {
 }
 
 # Save report
-$reportPath = "$env:USERPROFILE\Desktop\FlashValidation_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+$reportPath = "C:\Windows\Temp_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
 $report = @"
 Adobe Flash Player Validation Report
 =====================================
