@@ -133,7 +133,7 @@ if ($securityProducts.Count -eq 0) {
 # ============================================================================
 # 2. DETECT KERNEL DRIVERS (MINIFILTER DRIVERS)
 # ============================================================================
-Write-Section "KERNEL DRIVERS & MINIFILTERS"
+Write-Section "KERNEL DRIVERS AND MINIFILTERS"
 
 Write-Host "Scanning for filesystem and registry minifilter drivers...`n" -ForegroundColor Gray
 
@@ -530,7 +530,7 @@ Write-Test "PowerShell Execution Policy" $execPolicy "Current policy setting"
 # ============================================================================
 # 9. DETECT VIRTUALIZATION / SANDBOXING
 # ============================================================================
-Write-Section "VIRTUALIZATION & SANDBOXING DETECTION"
+Write-Section "VIRTUALIZATION AND SANDBOXING DETECTION"
 
 Write-Host "Checking for virtualization and sandboxing...`n" -ForegroundColor Gray
 
