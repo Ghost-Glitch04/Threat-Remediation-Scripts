@@ -289,23 +289,193 @@ try {
 # 6. TEST SCHEDULED TASK PROTECTIONS
 # ============================================================================
 Write-Section "SCHEDULED TASK PROTECTION TESTS"
+    # ========================================================================
+    # HELPER FUNCTIONS
+    # ========================================================================
+    function Write-Section {
+        param($Title)
+        Write-Host "`n========================================" -ForegroundColor Cyan
+        Write-Host " $Title" -ForegroundColor Cyan
+        Write-Host "========================================" -ForegroundColor Cyan
+    }
 
-Write-Host "Testing scheduled task manipulation...`n" -ForegroundColor Gray
+    function Write-Test {
+        param($TestName, $Result, $Details = "")
+        $color = switch ($Result) {
+            "ALLOWED" { "Green" }
+            "BLOCKED" { "Red" }
+            "AVAILABLE" { "Green" }
+            "UNAVAILABLE" { "Red" }
+            "LIMITED" { "Yellow" }
+            "UNTESTED" { "Gray" }
+            "CONFIRMED" { "Green" }
+            "WRITE" { "Green" }
+            "READ-ONLY" { "Yellow" }
+            "UNKNOWN" { "Gray" }
+            default { "Cyan" }
+        }
+        Write-Host "[TEST] " -NoNewline -ForegroundColor Cyan
+        Write-Host "$TestName`: " -NoNewline -ForegroundColor White
+        Write-Host "$Result" -ForegroundColor $color
+        if ($Details) {
+            Write-Host "       $Details" -ForegroundColor Gray
+        }
+    }
 
-$taskName = "SecurityTest_$(Get-Random)"
-try {
-    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c exit"
-    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddHours(1)
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force -ErrorAction Stop | Out-Null
-    Write-Test "Scheduled Task Creation" "ALLOWED" "Can create scheduled tasks"
-    
-    # Try to delete
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
-    Write-Test "Scheduled Task Deletion" "ALLOWED" "Can delete scheduled tasks"
-} catch {
-    Write-Test "Scheduled Task Operations" "BLOCKED" $_.Exception.Message
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-}
+    # ========================================================================
+    # SCHEDULED TASK PROTECTION TESTS (SENTINELONE-AWARE)
+    # ========================================================================
+    Write-Section "SCHEDULED TASK PROTECTION TESTS"
+
+    Write-Host "Testing scheduled task manipulation...`n" -ForegroundColor Gray
+
+    # Function to detect SentinelOne in process tree
+    function Test-SentinelOnePresence {
+        $currentPID = $PID
+        
+        for ($i = 0; $i -lt 5; $i++) {
+            $proc = Get-WmiObject Win32_Process -Filter "ProcessId=$currentPID" -ErrorAction SilentlyContinue
+            if (-not $proc) { break }
+            
+            if ($proc.Name -match 'Sentinel|S1') {
+                return @{
+                    Detected = $true
+                    ProcessName = $proc.Name
+                    ProcessID = $currentPID
+                    Level = $i
+                }
+            }
+            
+            $currentPID = $proc.ParentProcessId
+            if ($currentPID -eq 0 -or $null -eq $currentPID) { break }
+        }
+        
+        return @{ Detected = $false }
+    }
+
+    # Detect execution environment
+    $sentinelCheck = Test-SentinelOnePresence
+
+    if ($sentinelCheck.Detected) {
+        Write-Host "[!] SentinelOne detected in process tree: $($sentinelCheck.ProcessName)" -ForegroundColor Yellow
+        Write-Host "    Using safe enumeration mode (avoids session termination)`n" -ForegroundColor Yellow
+        
+        # SAFE MODE: Query and check capabilities without creating tasks
+        
+        # Test 1: Query existing scheduled tasks
+        try {
+            $existingTasks = Get-ScheduledTask -ErrorAction Stop
+            Write-Test "Scheduled Task Query" "ALLOWED" "Can enumerate $($existingTasks.Count) tasks"
+        } catch {
+            Write-Test "Scheduled Task Query" "BLOCKED" $_.Exception.Message
+        }
+        
+        # Test 2: Check cmdlet availability
+        $cmdlets = @('Register-ScheduledTask', 'Unregister-ScheduledTask', 'New-ScheduledTaskAction', 'New-ScheduledTaskTrigger')
+        $availableCmdlets = 0
+        foreach ($cmdlet in $cmdlets) {
+            if (Get-Command $cmdlet -ErrorAction SilentlyContinue) {
+                $availableCmdlets++
+            }
+        }
+        
+        if ($availableCmdlets -eq $cmdlets.Count) {
+            Write-Test "Scheduled Task Cmdlets" "AVAILABLE" "All $availableCmdlets cmdlets present"
+        } else {
+            Write-Test "Scheduled Task Cmdlets" "LIMITED" "Only $availableCmdlets of $($cmdlets.Count) available"
+        }
+        
+        # Test 3: Check schtasks.exe availability
+        $schtasksPath = "$env:windir\System32\schtasks.exe"
+        if (Test-Path $schtasksPath) {
+            # Test if we can run schtasks in query mode
+            try {
+                $result = schtasks /query /tn "Microsoft\Windows\Diagnosis\Scheduled" 2>&1
+                if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 1) {
+                    Write-Test "schtasks.exe Query" "ALLOWED" "Can query tasks via schtasks.exe"
+                } else {
+                    Write-Test "schtasks.exe Query" "LIMITED" "schtasks.exe available but restricted"
+                }
+            } catch {
+                Write-Test "schtasks.exe Query" "BLOCKED" "Cannot execute schtasks.exe"
+            }
+        } else {
+            Write-Test "schtasks.exe" "UNAVAILABLE" "schtasks.exe not found"
+        }
+        
+        # Test 4: Check task folder permissions
+        $taskFolderPath = "$env:windir\System32\Tasks"
+        if (Test-Path $taskFolderPath) {
+            try {
+                $acl = Get-Acl $taskFolderPath -ErrorAction Stop
+                $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                $hasWriteAccess = $false
+                
+                foreach ($access in $acl.Access) {
+                    if ($access.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]) -eq $currentUser.User) {
+                        if ($access.FileSystemRights -match 'Write|FullControl|Modify') {
+                            $hasWriteAccess = $true
+                            break
+                        }
+                    }
+                }
+                
+                if ($hasWriteAccess) {
+                    Write-Test "Task Folder Permissions" "WRITE" "Have write access to task folder"
+                } else {
+                    Write-Test "Task Folder Permissions" "READ-ONLY" "Limited access to task folder"
+                }
+            } catch {
+                Write-Test "Task Folder Permissions" "UNKNOWN" "Could not check permissions"
+            }
+        }
+        
+        # Test 5: Check if we can create task objects (safe - doesn't register)
+        try {
+            $testAction = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c exit" -ErrorAction Stop
+            $testTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddHours(1) -ErrorAction Stop
+            Write-Test "Task Object Creation" "ALLOWED" "Can create task action/trigger objects"
+        } catch {
+            Write-Test "Task Object Creation" "BLOCKED" $_.Exception.Message
+        }
+        
+        # Summary for SentinelOne environment
+        Write-Host "`n    [NOTE] Actual task creation test skipped to prevent session termination" -ForegroundColor Gray
+        Write-Host "           Based on checks above, task creation capability: " -NoNewline -ForegroundColor Gray
+        if ($availableCmdlets -eq $cmdlets.Count -and (Test-Path $schtasksPath)) {
+            Write-Host "LIKELY AVAILABLE" -ForegroundColor Yellow
+        } else {
+            Write-Host "LIMITED" -ForegroundColor Red
+        }
+        
+    } else {
+        Write-Host "[✓] Safe environment detected - performing full test`n" -ForegroundColor Green
+        
+        # FULL MODE: Actually create and delete a task
+        $taskName = "SecurityTest_$(Get-Random)"
+        try {
+            $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c exit"
+            $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddHours(1)
+            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force -ErrorAction Stop | Out-Null
+            Write-Test "Scheduled Task Creation" "ALLOWED" "Can create scheduled tasks"
+            
+            # Verify task exists
+            $verifyTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($verifyTask) {
+                Write-Test "Scheduled Task Verification" "CONFIRMED" "Task exists in scheduler"
+            }
+            
+            # Try to delete
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+            Write-Test "Scheduled Task Deletion" "ALLOWED" "Can delete scheduled tasks"
+            
+        } catch {
+            Write-Test "Scheduled Task Operations" "BLOCKED" $_.Exception.Message
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        }
+    }
+
+    Write-Host ""
 
 # ============================================================================
 # 7. TEST SERVICE PROTECTIONS
