@@ -5,8 +5,7 @@
     Identifies security software, tests for various protections, and reports capabilities
     Optimized for SentinelOne and N-Able remote shell environments
 .NOTES
-    Version: 2.0
-    Does not require -RunAsAdministrator flag (checks at runtime instead)
+    Version: 2.1 - ASCII only for remote shell compatibility
 #>
 
 # ============================================================================
@@ -28,7 +27,7 @@ function Write-Section {
 function Write-Finding {
     param($Category, $Finding, $Details = "")
     Write-Host "[DETECTED] " -NoNewline -ForegroundColor Yellow
-    Write-Host "$Category`: " -NoNewline -ForegroundColor White
+    Write-Host "$Category : " -NoNewline -ForegroundColor White
     Write-Host "$Finding" -ForegroundColor Green
     if ($Details) {
         Write-Host "           $Details" -ForegroundColor Gray
@@ -51,7 +50,7 @@ function Write-Test {
         default { "Yellow" }
     }
     Write-Host "[TEST] " -NoNewline -ForegroundColor Cyan
-    Write-Host "$TestName`: " -NoNewline -ForegroundColor White
+    Write-Host "$TestName : " -NoNewline -ForegroundColor White
     Write-Host "$Result" -ForegroundColor $color
     if ($Details) {
         Write-Host "       $Details" -ForegroundColor Gray
@@ -64,7 +63,6 @@ function Write-PermissionError {
     Write-Host "$Operation" -ForegroundColor White
     Write-Host "                   Error: $ErrorDetails" -ForegroundColor DarkRed
     
-    # Parse common permission errors
     if ($ErrorDetails -match "Access.*denied|Unauthorized") {
         Write-Host "                   Cause: Insufficient privileges or DACL restriction" -ForegroundColor DarkRed
     } elseif ($ErrorDetails -match "in use|being used") {
@@ -96,7 +94,7 @@ try {
 }
 
 # Detect remote shell type
-$parentProcess = Get-WmiObject Win32_Process -Filter "ProcessId=$PID" | Select-Object -First 1
+$parentProcess = Get-WmiObject Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($parentProcess) {
     $parentName = (Get-Process -Id $parentProcess.ParentProcessId -ErrorAction SilentlyContinue).Name
     
@@ -138,7 +136,8 @@ $securityProducts = @()
 $services = @()
 try {
     $services = Get-Service -ErrorAction Stop
-    Write-Host "[✓] Can enumerate services ($($services.Count) total)" -ForegroundColor Green
+    $svcCount = $services.Count
+    Write-Host "[OK] Can enumerate services ($svcCount total)" -ForegroundColor Green
 } catch {
     Write-PermissionError "Service Enumeration" $_.Exception.Message
 }
@@ -149,14 +148,13 @@ if ($sentinelService) {
     Write-Finding "EDR" "SentinelOne" "Service: $($sentinelService.Status)"
     $securityProducts += "SentinelOne"
     
-    # Check for SentinelOne drivers with timeout
     try {
         $drivers = Get-WmiObject Win32_SystemDriver -Filter "Name LIKE '%Sentinel%'" -ErrorAction Stop
         foreach ($driver in $drivers) {
             Write-Host "           Driver: $($driver.Name) - $($driver.State)" -ForegroundColor Gray
         }
     } catch {
-        Write-Host "           [!] Could not enumerate drivers: $($_.Exception.Message)" -ForegroundColor DarkGray
+        Write-Host "           [WARN] Could not enumerate drivers: $($_.Exception.Message)" -ForegroundColor DarkGray
     }
 }
 
@@ -179,7 +177,7 @@ try {
         Write-Host "           Cloud Protection: $($defenderStatus.CloudProtectionEnabled)" -ForegroundColor Gray
     }
 } catch {
-    Write-Host "[INFO] Windows Defender status unavailable: $($_.Exception.Message)" -ForegroundColor DarkGray
+    Write-Host "[WARN] Windows Defender status unavailable: $($_.Exception.Message)" -ForegroundColor DarkGray
 }
 
 # Check for other common security products
@@ -203,18 +201,18 @@ foreach ($product in $securityServicePatterns.Keys) {
     }
 }
 
-# Check Windows Security Center (may not work on servers or in remote shells)
+# Check Windows Security Center
 try {
     $antivirusProducts = Get-CimInstance -Namespace "root\SecurityCenter2" -ClassName "AntiVirusProduct" -ErrorAction Stop
     foreach ($av in $antivirusProducts) {
         Write-Finding "AV Product" "$($av.displayName)" "State: $($av.productState)"
     }
 } catch {
-    Write-Host "[INFO] Security Center query unavailable (normal for servers/remote shells)" -ForegroundColor DarkGray
+    Write-Host "[WARN] Security Center query unavailable (normal for servers/remote shells)" -ForegroundColor DarkGray
 }
 
 if ($securityProducts.Count -eq 0) {
-    Write-Host "[INFO] No major EDR/XDR products detected" -ForegroundColor Gray
+    Write-Host "[WARN] No major EDR/XDR products detected" -ForegroundColor Gray
 }
 
 # ============================================================================
@@ -238,7 +236,6 @@ try {
                 $instances = $matches[2]
                 $altitude = $matches[3]
                 
-                # Highlight security-related filters
                 if ($filterName -match 'Sentinel|Crowd|Defender|Carbon|Sophos|Symantec|McAfee|Trend|Cortex|Cylance|WdFilter') {
                     Write-Host "  [SECURITY] $filterName" -NoNewline -ForegroundColor Yellow
                     Write-Host " (Instances: $instances, Altitude: $altitude)" -ForegroundColor Gray
@@ -276,7 +273,7 @@ try {
             Write-Host "    State: $($driver.State), Start: $($driver.StartMode)" -ForegroundColor DarkGray
         }
     } else {
-        Write-Host "  [INFO] No security-related kernel drivers found or query timed out" -ForegroundColor Gray
+        Write-Host "  [WARN] No security-related kernel drivers found or query timed out" -ForegroundColor Gray
     }
 } catch {
     Write-PermissionError "Kernel Driver Enumeration" $_.Exception.Message
@@ -291,7 +288,7 @@ if (-not $script:HasAdminRights) {
     Write-Host "[!] Some registry tests require admin rights - testing with available permissions`n" -ForegroundColor Yellow
 }
 
-# Test 1: Create registry key in HKCU (should work without admin)
+# Test 1: Create registry key in HKCU
 $testKeyHKCU = "HKCU:\Software\SecurityTest_$(Get-Random)"
 try {
     New-Item -Path $testKeyHKCU -Force -ErrorAction Stop | Out-Null
@@ -309,7 +306,7 @@ try {
     Write-PermissionError "HKCU Create" $_.Exception.Message
 }
 
-# Test 2: Create registry key in HKLM (requires admin)
+# Test 2: Create registry key in HKLM
 if ($script:HasAdminRights) {
     $testKeyHKLM = "HKLM:\SOFTWARE\SecurityTest_$(Get-Random)"
     try {
@@ -322,7 +319,6 @@ if ($script:HasAdminRights) {
         } catch {
             Write-Test "HKLM Registry Delete" "BLOCKED" "Could not delete - possible EDR protection"
             Write-PermissionError "HKLM Delete" $_.Exception.Message
-            # Cleanup attempt
             Remove-Item -Path $testKeyHKLM -Force -ErrorAction SilentlyContinue
         }
     } catch {
@@ -359,7 +355,6 @@ foreach ($keyInfo in $protectedKeys) {
             } catch {
                 Write-Test "Protected Key: $key" "WRITE-ONLY" "Can write but cannot delete"
                 Write-PermissionError "Delete from $key" $_.Exception.Message
-                # Cleanup
                 Remove-ItemProperty -Path $key -Name $testValueName -Force -ErrorAction SilentlyContinue
             }
         } catch {
@@ -376,7 +371,7 @@ foreach ($keyInfo in $protectedKeys) {
 # ============================================================================
 Write-Section "FILESYSTEM PROTECTION TESTS"
 
-# Test 1: Write to Temp (should always work)
+# Test 1: Write to Temp
 $testFile = "$env:TEMP\SecurityTest_$(Get-Random).txt"
 try {
     "test" | Out-File -FilePath $testFile -Force -ErrorAction Stop
@@ -393,7 +388,7 @@ try {
     Write-PermissionError "Write to Temp" $_.Exception.Message
 }
 
-# Test 2: Write to Windows directory (requires admin)
+# Test 2: Write to Windows directory
 if ($script:HasAdminRights) {
     $testFile = "$env:windir\SecurityTest_$(Get-Random).txt"
     try {
@@ -405,7 +400,7 @@ if ($script:HasAdminRights) {
         Write-PermissionError "Write to Windows Dir" $_.Exception.Message
     }
     
-    # Test 3: Write to System32 (requires admin)
+    # Test 3: Write to System32
     $testFile = "$env:windir\System32\SecurityTest_$(Get-Random).txt"
     try {
         "test" | Out-File -FilePath $testFile -Force -ErrorAction Stop
@@ -425,7 +420,6 @@ try {
     Copy-Item "$env:windir\System32\notepad.exe" -Destination $testExe -Force -ErrorAction Stop
     Write-Test "Temp Directory EXE Creation" "ALLOWED" "Can create executables"
     
-    # Try to execute it
     try {
         $proc = Start-Process -FilePath $testExe -ArgumentList "/??" -WindowStyle Hidden -PassThru -ErrorAction Stop
         Start-Sleep -Milliseconds 500
@@ -450,7 +444,8 @@ Write-Section "PROCESS PROTECTION TESTS"
 # Test 1: Process enumeration
 try {
     $allProcs = Get-Process -ErrorAction Stop
-    Write-Test "Process Enumeration" "ALLOWED" "Can enumerate $($allProcs.Count) processes"
+    $procCount = $allProcs.Count
+    Write-Test "Process Enumeration" "ALLOWED" "Can enumerate $procCount processes"
 } catch {
     Write-Test "Process Enumeration" "BLOCKED" "Cannot enumerate processes"
     Write-PermissionError "Process Enumeration" $_.Exception.Message
@@ -461,7 +456,8 @@ try {
     $proc = Get-Process -Name "explorer" -ErrorAction Stop | Select-Object -First 1
     if ($proc) {
         $memInfo = $proc.WorkingSet64
-        Write-Test "Process Memory Info" "ALLOWED" "Can read process memory details ($([math]::Round($memInfo/1MB, 2)) MB)"
+        $memMB = [math]::Round($memInfo/1MB, 2)
+        Write-Test "Process Memory Info" "ALLOWED" "Can read process memory details ($memMB MB)"
     }
 } catch {
     Write-Test "Process Memory Info" "LIMITED" "Cannot read all process details"
@@ -490,11 +486,10 @@ if ($securityProducts.Count -gt 0) {
 }
 
 # ============================================================================
-# 6. TEST SCHEDULED TASK PROTECTIONS (SAFE MODE FOR REMOTE SHELLS)
+# 6. TEST SCHEDULED TASK PROTECTIONS
 # ============================================================================
 Write-Section "SCHEDULED TASK PROTECTION TESTS"
 
-# Always use safe mode in remote shells to prevent disconnection
 if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
     Write-Host "[!] Remote shell detected - using safe enumeration mode" -ForegroundColor Yellow
     Write-Host "    (Avoids task creation to prevent session termination)`n" -ForegroundColor Yellow
@@ -502,7 +497,8 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
     # Test 1: Query existing scheduled tasks
     try {
         $existingTasks = Get-ScheduledTask -ErrorAction Stop
-        Write-Test "Scheduled Task Query" "ALLOWED" "Can enumerate $($existingTasks.Count) tasks"
+        $taskCount = $existingTasks.Count
+        Write-Test "Scheduled Task Query" "ALLOWED" "Can enumerate $taskCount tasks"
     } catch {
         Write-Test "Scheduled Task Query" "BLOCKED" "Cannot enumerate tasks"
         Write-PermissionError "Task Query" $_.Exception.Message
@@ -517,10 +513,11 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
         }
     }
     
-    if ($availableCmdlets -eq $cmdlets.Count) {
-        Write-Test "Scheduled Task Cmdlets" "AVAILABLE" "All $availableCmdlets/$($cmdlets.Count) cmdlets present"
+    $cmdletTotal = $cmdlets.Count
+    if ($availableCmdlets -eq $cmdletTotal) {
+        Write-Test "Scheduled Task Cmdlets" "AVAILABLE" "All $availableCmdlets/$cmdletTotal cmdlets present"
     } else {
-        Write-Test "Scheduled Task Cmdlets" "LIMITED" "Only $availableCmdlets/$($cmdlets.Count) cmdlets available"
+        Write-Test "Scheduled Task Cmdlets" "LIMITED" "Only $availableCmdlets/$cmdletTotal cmdlets available"
     }
     
     # Test 3: Check schtasks.exe
@@ -547,7 +544,6 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
             $acl = Get-Acl $taskFolderPath -ErrorAction Stop
             $testFile = Join-Path $taskFolderPath "SecurityTest_$(Get-Random)"
             
-            # Try to create a file
             try {
                 "test" | Out-File -FilePath $testFile -Force -ErrorAction Stop
                 Write-Test "Task Folder Write Access" "ALLOWED" "Have write access to task folder"
@@ -560,7 +556,7 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
         }
     }
     
-    # Test 5: Safe task object creation (doesn't register)
+    # Test 5: Safe task object creation
     try {
         $testAction = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c exit" -ErrorAction Stop
         $testTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddHours(1) -ErrorAction Stop
@@ -572,10 +568,10 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
     
     Write-Host "`n    [NOTE] Actual task registration test skipped in remote shell" -ForegroundColor Gray
     Write-Host "           Estimated capability: " -NoNewline -ForegroundColor Gray
-    if ($script:HasAdminRights -and $availableCmdlets -eq $cmdlets.Count) {
+    if ($script:HasAdminRights -and $availableCmdlets -eq $cmdletTotal) {
         Write-Host "LIKELY AVAILABLE" -ForegroundColor Yellow
         Write-Host "           (Admin rights + all cmdlets present)" -ForegroundColor Gray
-    } elseif ($availableCmdlets -eq $cmdlets.Count) {
+    } elseif ($availableCmdlets -eq $cmdletTotal) {
         Write-Host "LIMITED" -ForegroundColor Yellow
         Write-Host "           (Cmdlets present but no admin rights)" -ForegroundColor Gray
     } else {
@@ -584,9 +580,8 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
     }
     
 } else {
-    Write-Host "[✓] Local execution detected - performing full test`n" -ForegroundColor Green
+    Write-Host "[OK] Local execution detected - performing full test`n" -ForegroundColor Green
     
-    # Full test mode
     $taskName = "SecurityTest_$(Get-Random)"
     try {
         $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c exit"
@@ -595,13 +590,11 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force -ErrorAction Stop | Out-Null
         Write-Test "Scheduled Task Creation" "ALLOWED" "Successfully created scheduled task"
         
-        # Verify
         $verifyTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($verifyTask) {
             Write-Test "Scheduled Task Verification" "CONFIRMED" "Task exists in scheduler"
         }
         
-        # Delete
         try {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
             Write-Test "Scheduled Task Deletion" "ALLOWED" "Successfully deleted task"
@@ -613,7 +606,6 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
     } catch {
         Write-Test "Scheduled Task Operations" "BLOCKED" "Cannot create scheduled tasks"
         Write-PermissionError "Task Creation" $_.Exception.Message
-        # Cleanup
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     }
 }
@@ -623,16 +615,15 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able|WinRM") {
 # ============================================================================
 Write-Section "SERVICE PROTECTION TESTS"
 
-# Test: Can we query services?
 try {
     $services = Get-Service -ErrorAction Stop
-    Write-Test "Service Enumeration" "ALLOWED" "Can enumerate $($services.Count) services"
+    $svcCount = $services.Count
+    Write-Test "Service Enumeration" "ALLOWED" "Can enumerate $svcCount services"
 } catch {
     Write-Test "Service Enumeration" "BLOCKED" "Cannot enumerate services"
     Write-PermissionError "Service Enumeration" $_.Exception.Message
 }
 
-# Test: Can we query specific security services?
 if ($securityProducts.Count -gt 0) {
     $testService = Get-Service | Where-Object { $_.Name -match 'Sentinel|Defender|Crowd|Sophos' } | Select-Object -First 1
     if ($testService) {
@@ -646,13 +637,10 @@ if ($securityProducts.Count -gt 0) {
     }
 }
 
-# Test: Can we check service permissions?
 if ($script:HasAdminRights) {
     try {
-        $testServiceName = "Spooler"  # Use a common, non-critical service
+        $testServiceName = "Spooler"
         $service = Get-Service -Name $testServiceName -ErrorAction Stop
-        
-        # Try to get detailed info via WMI
         $serviceWMI = Get-WmiObject Win32_Service -Filter "Name='$testServiceName'" -ErrorAction Stop
         Write-Test "Service Detail Query (WMI)" "ALLOWED" "Can query detailed service information"
     } catch {
@@ -667,19 +655,16 @@ if ($script:HasAdminRights) {
 # ============================================================================
 Write-Section "SCRIPT EXECUTION PROTECTION TESTS"
 
-# Test 1: Check current execution policy
 $execPolicy = Get-ExecutionPolicy
 $execPolicyList = Get-ExecutionPolicy -List | Format-Table -AutoSize | Out-String
 Write-Test "PowerShell Execution Policy" $execPolicy "Current effective policy"
 Write-Host "       Execution Policy by Scope:" -ForegroundColor Gray
 Write-Host $execPolicyList -ForegroundColor DarkGray
 
-# Test 2: PowerShell script execution
 $scriptPath = "$env:TEMP\SecurityTest_$(Get-Random).ps1"
 try {
     'Write-Output "Test Successful"' | Out-File -FilePath $scriptPath -Force -ErrorAction Stop
     
-    # Test execution with bypass
     $output = & PowerShell.exe -ExecutionPolicy Bypass -NoProfile -File $scriptPath 2>&1
     if ($output -match "Test Successful") {
         Write-Test "PowerShell Script Execution" "ALLOWED" "Scripts execute with -ExecutionPolicy Bypass"
@@ -693,7 +678,6 @@ try {
     Write-PermissionError "Script Execution" $_.Exception.Message
 }
 
-# Test 3: AMSI (Anti-Malware Scan Interface) presence
 try {
     $amsiContext = [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')
     if ($amsiContext) {
@@ -703,7 +687,6 @@ try {
     Write-Test "AMSI Status" "UNKNOWN" "Could not determine AMSI status"
 }
 
-# Test 4: PowerShell constrained language mode
 $languageMode = $ExecutionContext.SessionState.LanguageMode
 if ($languageMode -eq "FullLanguage") {
     Write-Test "PowerShell Language Mode" $languageMode "Full PowerShell capabilities available"
@@ -712,7 +695,6 @@ if ($languageMode -eq "FullLanguage") {
     Write-Host "       [!] Some PowerShell features may be unavailable" -ForegroundColor Yellow
 }
 
-# Test 5: Can we load .NET assemblies?
 try {
     [System.Diagnostics.Process]::GetCurrentProcess() | Out-Null
     Write-Test ".NET Assembly Loading" "ALLOWED" "Can load and use .NET Framework"
@@ -725,7 +707,6 @@ try {
 # ============================================================================
 Write-Section "VIRTUALIZATION AND SANDBOXING DETECTION"
 
-# Check if running in VM
 try {
     $computerSystem = Get-WmiObject -Class Win32_ComputerSystem -ErrorAction Stop
     $biosInfo = Get-WmiObject -Class Win32_BIOS -ErrorAction Stop
@@ -737,7 +718,6 @@ try {
         Write-Finding "Hardware" "$($computerSystem.Model)" "Physical hardware or unknown VM"
     }
     
-    # Check BIOS for VM indicators
     if ($biosInfo.SerialNumber -match 'VMware|VirtualBox|Hyper-V|0{8}') {
         Write-Finding "BIOS" "Virtual Machine Detected" "BIOS Serial: $($biosInfo.SerialNumber)"
     }
@@ -745,7 +725,6 @@ try {
     Write-Host "[WARN] Could not determine virtualization status: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
-# Check for Windows Sandbox
 try {
     if ((Get-WmiObject Win32_ComputerSystem).Model -match 'Virtual Machine') {
         if (Test-Path "C:\ProgramData\Microsoft\Windows\Containers") {
@@ -754,7 +733,6 @@ try {
     }
 } catch {}
 
-# Check for Hyper-V isolation / containers
 try {
     $containerFeature = Get-WindowsOptionalFeature -Online -FeatureName "Containers" -ErrorAction SilentlyContinue
     if ($containerFeature -and $containerFeature.State -eq "Enabled") {
@@ -767,7 +745,6 @@ try {
 # ============================================================================
 Write-Section "TAMPER PROTECTION STATUS"
 
-# Windows Defender Tamper Protection
 if ($defenderStatus) {
     if ($defenderStatus.IsTamperProtected) {
         Write-Test "Defender Tamper Protection" "ENABLED" "Security settings are protected from modification"
@@ -777,7 +754,6 @@ if ($defenderStatus) {
     }
 }
 
-# Check UAC status
 try {
     $uacKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
     $uacEnabled = (Get-ItemProperty -Path $uacKey -Name "EnableLUA" -ErrorAction Stop).EnableLUA
@@ -801,7 +777,6 @@ try {
     Write-Test "UAC Status" "UNKNOWN" "Could not determine UAC configuration"
 }
 
-# Check if running in AppContainer or restricted token
 try {
     $currentProcess = [System.Diagnostics.Process]::GetCurrentProcess()
     $handle = $currentProcess.Handle
@@ -815,7 +790,6 @@ try {
 # ============================================================================
 Write-Section "NETWORK CAPABILITY TESTS"
 
-# Test 1: Can we resolve DNS?
 try {
     $dnsTest = Resolve-DnsName -Name "google.com" -ErrorAction Stop | Select-Object -First 1
     Write-Test "DNS Resolution" "ALLOWED" "Can resolve hostnames ($($dnsTest.IPAddress))"
@@ -824,7 +798,6 @@ try {
     Write-PermissionError "DNS Resolution" $_.Exception.Message
 }
 
-# Test 2: Can we make web requests?
 try {
     $webTest = Invoke-WebRequest -Uri "https://www.google.com" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
     Write-Test "HTTP/HTTPS Requests" "ALLOWED" "Can make web requests (Status: $($webTest.StatusCode))"
@@ -833,7 +806,6 @@ try {
     Write-PermissionError "Web Request" $_.Exception.Message
 }
 
-# Test 3: Check Windows Firewall status
 if ($script:HasAdminRights) {
     try {
         $firewallProfiles = Get-NetFirewallProfile -ErrorAction Stop
@@ -854,94 +826,61 @@ if ($script:HasAdminRights) {
 Write-Section "ENUMERATION SUMMARY"
 
 Write-Host ""
-Write-Host "╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║                     SECURITY POSTURE SUMMARY                  ║" -ForegroundColor Cyan
-Write-Host "╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "================================================================" -ForegroundColor Cyan
+Write-Host "                  SECURITY POSTURE SUMMARY                      " -ForegroundColor Cyan
+Write-Host "================================================================" -ForegroundColor Cyan
 
-# Execution context
 Write-Host "`n[EXECUTION CONTEXT]" -ForegroundColor White
 Write-Host "  Shell Type:        " -NoNewline -ForegroundColor Gray
-Write-Host $script:RemoteShellType -ForegroundColor $(if ($script:RemoteShellType -match "Unknown") { "Yellow" } else { "Cyan" })
-Write-Host "  Username:          " -NoNewline -ForegroundColor Gray
-Write-Host "$env:USERDOMAIN\$env:USERNAME" -ForegroundColor Cyan
-Write-Host "  Computer:          " -NoNewline -ForegroundColor Gray
-Write-Host $env:COMPUTERNAME -ForegroundColor Cyan
+if ($script:RemoteShellType -match "Unknown") {
+    Write-Host $script:RemoteShellType -ForegroundColor Yellow
+} else {
+    Write-Host $script:RemoteShellType -ForegroundColor Cyan
+}
+Write-Host "  Username:          $env:USERDOMAIN\$env:USERNAME" -ForegroundColor Gray
+Write-Host "  Computer:          $env:COMPUTERNAME" -ForegroundColor Gray
 Write-Host "  Admin Rights:      " -NoNewline -ForegroundColor Gray
-Write-Host $(if ($script:HasAdminRights) { "YES" } else { "NO" }) -ForegroundColor $(if ($script:HasAdminRights) { "Green" } else { "Red" })
+if ($script:HasAdminRights) {
+    Write-Host "YES" -ForegroundColor Green
+} else {
+    Write-Host "NO" -ForegroundColor Red
+}
 Write-Host "  Language Mode:     " -NoNewline -ForegroundColor Gray
-Write-Host $ExecutionContext.SessionState.LanguageMode -ForegroundColor $(if ($ExecutionContext.SessionState.LanguageMode -eq "FullLanguage") { "Green" } else { "Yellow" })
+if ($ExecutionContext.SessionState.LanguageMode -eq "FullLanguage") {
+    Write-Host $ExecutionContext.SessionState.LanguageMode -ForegroundColor Green
+} else {
+    Write-Host $ExecutionContext.SessionState.LanguageMode -ForegroundColor Yellow
+}
 
-# Security products
 Write-Host "`n[SECURITY PRODUCTS DETECTED]" -ForegroundColor White
 if ($securityProducts.Count -gt 0) {
     Write-Host "  Count: " -NoNewline -ForegroundColor Gray
     Write-Host $securityProducts.Count -ForegroundColor Yellow
     $securityProducts | ForEach-Object { 
-        Write-Host "    • $_" -ForegroundColor Yellow
+        Write-Host "    * $_" -ForegroundColor Yellow
     }
 } else {
     Write-Host "  None detected" -ForegroundColor Green
 }
 
-# Permission summary
-Write-Host "`n[PERMISSION SUMMARY]" -ForegroundColor White
-
-$permissions = @{
-    "Registry (HKCU)" = "Unknown"
-    "Registry (HKLM)" = "Unknown"
-    "File System (Temp)" = "Unknown"
-    "File System (System)" = "Unknown"
-    "Process Operations" = "Unknown"
-    "Scheduled Tasks" = "Unknown"
-    "Service Management" = "Unknown"
-    "Script Execution" = "Unknown"
-    "Network Access" = "Unknown"
-}
-
-# This would need to be populated based on test results stored in variables
-# For demonstration, showing the format:
-
-Write-Host "  Registry Operations:" -ForegroundColor Gray
-Write-Host "    • HKCU:          " -NoNewline -ForegroundColor Gray
-Write-Host "Allowed" -ForegroundColor Green
-if ($script:HasAdminRights) {
-    Write-Host "    • HKLM:          " -NoNewline -ForegroundColor Gray
-    Write-Host "Tested (see details above)" -ForegroundColor Yellow
-} else {
-    Write-Host "    • HKLM:          " -NoNewline -ForegroundColor Gray
-    Write-Host "Requires Admin" -ForegroundColor Red
-}
-
-Write-Host "  File System:" -ForegroundColor Gray
-Write-Host "    • Temp Directory:" -NoNewline -ForegroundColor Gray
-Write-Host " Tested (see details above)" -ForegroundColor Yellow
-if ($script:HasAdminRights) {
-    Write-Host "    • System Dirs:   " -NoNewline -ForegroundColor Gray
-    Write-Host "Tested (see details above)" -ForegroundColor Yellow
-} else {
-    Write-Host "    • System Dirs:   " -NoNewline -ForegroundColor Gray
-    Write-Host "Requires Admin" -ForegroundColor Red
-}
-
-# Key findings and recommendations
 Write-Host "`n[KEY FINDINGS]" -ForegroundColor White
 
 if ($securityProducts.Count -gt 0) {
-    Write-Host "  ⚠ EDR/XDR Protection Active" -ForegroundColor Yellow
+    Write-Host "  ! EDR/XDR Protection Active" -ForegroundColor Yellow
     Write-Host "    - Registry operations are monitored" -ForegroundColor Gray
     Write-Host "    - File system activity is filtered" -ForegroundColor Gray
     Write-Host "    - Process creation is supervised" -ForegroundColor Gray
 }
 
 if (-not $script:HasAdminRights) {
-    Write-Host "  ⚠ Limited Privileges" -ForegroundColor Yellow
+    Write-Host "  ! Limited Privileges" -ForegroundColor Yellow
     Write-Host "    - HKLM registry modifications blocked" -ForegroundColor Gray
     Write-Host "    - System directory access restricted" -ForegroundColor Gray
     Write-Host "    - Service management unavailable" -ForegroundColor Gray
 }
 
 if ($script:RemoteShellType -match "SentinelOne|N-Able") {
-    Write-Host "  ⚠ Remote Shell Limitations" -ForegroundColor Yellow
+    Write-Host "  ! Remote Shell Limitations" -ForegroundColor Yellow
     Write-Host "    - Some operations may terminate session" -ForegroundColor Gray
     Write-Host "    - Safe mode used for scheduled task tests" -ForegroundColor Gray
     Write-Host "    - Use caution with system modifications" -ForegroundColor Gray
@@ -950,43 +889,42 @@ if ($script:RemoteShellType -match "SentinelOne|N-Able") {
 Write-Host "`n[RECOMMENDATIONS]" -ForegroundColor White
 
 if ($securityProducts -contains "SentinelOne") {
-    Write-Host "  • SentinelOne Detected:" -ForegroundColor Cyan
+    Write-Host "  * SentinelOne Detected:" -ForegroundColor Cyan
     Write-Host "    - Expect kernel-level file/registry protection" -ForegroundColor Gray
     Write-Host "    - Consider policy exclusions for legitimate scripts" -ForegroundColor Gray
     Write-Host "    - Use scheduled tasks as SYSTEM for protected operations" -ForegroundColor Gray
 }
 
 if ($securityProducts -contains "CrowdStrike") {
-    Write-Host "  • CrowdStrike Detected:" -ForegroundColor Cyan
+    Write-Host "  * CrowdStrike Detected:" -ForegroundColor Cyan
     Write-Host "    - Advanced behavioral monitoring active" -ForegroundColor Gray
     Write-Host "    - Avoid rapid-fire operations that appear suspicious" -ForegroundColor Gray
     Write-Host "    - Document legitimate administrative actions" -ForegroundColor Gray
 }
 
 if ($securityProducts -contains "Defender" -and $defenderStatus.IsTamperProtected) {
-    Write-Host "  • Defender Tamper Protection Enabled:" -ForegroundColor Cyan
+    Write-Host "  * Defender Tamper Protection Enabled:" -ForegroundColor Cyan
     Write-Host "    - Cannot disable real-time protection" -ForegroundColor Gray
     Write-Host "    - Work within the security framework" -ForegroundColor Gray
     Write-Host "    - Use Defender exclusions if needed" -ForegroundColor Gray
 }
 
 if (-not $script:HasAdminRights) {
-    Write-Host "  • Elevation Required:" -ForegroundColor Cyan
+    Write-Host "  * Elevation Required:" -ForegroundColor Cyan
     Write-Host "    - Re-run as Administrator for full capabilities" -ForegroundColor Gray
     Write-Host "    - Many system operations require elevation" -ForegroundColor Gray
 }
 
 if ($script:RemoteShellType -match "Unknown" -or $script:RemoteShellType -match "Direct") {
-    Write-Host "  • Local Execution:" -ForegroundColor Cyan
+    Write-Host "  * Local Execution:" -ForegroundColor Cyan
     Write-Host "    - Full testing capabilities available" -ForegroundColor Gray
     Write-Host "    - Safe to perform all operations" -ForegroundColor Gray
 }
 
 Write-Host ""
-Write-Host "╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║                     ENUMERATION COMPLETE                      ║" -ForegroundColor Cyan
-Write-Host "╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "================================================================" -ForegroundColor Cyan
+Write-Host "                   ENUMERATION COMPLETE                         " -ForegroundColor Cyan
+Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Reset error preference
 $ErrorActionPreference = "Continue"
