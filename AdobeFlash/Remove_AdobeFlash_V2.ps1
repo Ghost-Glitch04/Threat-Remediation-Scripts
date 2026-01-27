@@ -329,11 +329,16 @@ $regPaths = @(
     "HKLM:\SOFTWARE\WOW6432Node\Macromedia"
 )
 
+$failedRegKeys = @()
+
 foreach ($regPath in $regPaths) {
     Write-Detail "Checking registry: $regPath"
     
     if (Test-Path $regPath) {
         Write-Warn "Found Flash registry key: $regPath"
+        $keyRemoved = $false
+        
+        # Method 1: Try PowerShell Remove-Item
         try {
             Remove-Item -Path $regPath -Recurse -Force -ErrorAction Stop
             
@@ -341,13 +346,230 @@ foreach ($regPath in $regPaths) {
                 Write-Fail "Failed to remove: $regPath (still exists)"
             } else {
                 Write-Success "Removed: $regPath"
+                $keyRemoved = $true
             }
         }
         catch {
-            Write-Fail "Error removing $regPath : $($_.Exception.Message)"
+            Write-Fail "PowerShell removal failed: $($_.Exception.Message)"
+            Write-Detail "Attempting alternative method with reg.exe..."
+            
+            # Method 2: Try reg.exe
+            try {
+                # Convert PowerShell path to reg.exe format
+                $regExePath = $regPath -replace '^HKLM:\\', 'HKEY_LOCAL_MACHINE\'
+                
+                Write-Detail "Executing: reg delete `"$regExePath`" /f"
+                $process = Start-Process -FilePath "reg.exe" -ArgumentList "delete `"$regExePath`" /f" -Wait -PassThru -NoNewWindow
+                
+                if ($process.ExitCode -eq 0) {
+                    Write-Success "Removed via reg.exe: $regPath"
+                    $keyRemoved = $true
+                } else {
+                    Write-Fail "reg.exe failed with exit code: $($process.ExitCode)"
+                }
+                
+                # Verify removal
+                Start-Sleep -Milliseconds 500
+                if (-not (Test-Path $regPath)) {
+                    Write-Success "Verified: $regPath no longer exists"
+                    $keyRemoved = $true
+                } else {
+                    Write-Fail "Registry key still exists after reg.exe attempt"
+                }
+            }
+            catch {
+                Write-Fail "reg.exe execution error: $($_.Exception.Message)"
+            }
+        }
+        
+        # If both methods failed, add to list for scheduled task removal
+        if (-not $keyRemoved -and (Test-Path $regPath)) {
+            Write-Warn "Marking for scheduled task removal: $regPath"
+            $failedRegKeys += $regPath
         }
     } else {
         Write-Detail "Not found (OK): $regPath"
+    }
+}
+
+# Method 3: Use scheduled task for stubborn keys
+if ($failedRegKeys.Count -gt 0) {
+    Write-Host ""
+    Write-Step "Attempting scheduled task removal for $($failedRegKeys.Count) stubborn registry key(s)"
+    
+    # Create PowerShell script for the scheduled task
+    $taskScriptContent = @'
+# Registry cleanup script running as SYSTEM
+$logFile = "$env:TEMP\FlashRegistryCleanup.log"
+
+function Write-Log {
+    param($Message)
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "[$timestamp] $Message"
+    Add-Content -Path $logFile -Value $logMessage -Force
+}
+
+Write-Log "=== Starting Flash registry cleanup as SYSTEM ==="
+
+$registryKeys = @(
+{REGISTRY_KEYS_PLACEHOLDER}
+)
+
+foreach ($key in $registryKeys) {
+    Write-Log "Processing: $key"
+    
+    if (Test-Path $key) {
+        Write-Log "Key exists, attempting removal..."
+        
+        # Try PowerShell first
+        try {
+            Remove-Item -Path $key -Recurse -Force -ErrorAction Stop
+            Write-Log "SUCCESS: Removed via PowerShell - $key"
+        }
+        catch {
+            Write-Log "PowerShell failed: $($_.Exception.Message)"
+            
+            # Fallback to reg.exe
+            $regPath = $key -replace '^HKLM:\\', 'HKEY_LOCAL_MACHINE\'
+            Write-Log "Trying reg.exe: $regPath"
+            
+            try {
+                $proc = Start-Process -FilePath "reg.exe" -ArgumentList "delete `"$regPath`" /f" -Wait -PassThru -NoNewWindow
+                
+                if ($proc.ExitCode -eq 0) {
+                    Write-Log "SUCCESS: Removed via reg.exe - $key"
+                } else {
+                    Write-Log "FAILED: reg.exe exit code $($proc.ExitCode)"
+                }
+            }
+            catch {
+                Write-Log "FAILED: reg.exe error - $($_.Exception.Message)"
+            }
+        }
+        
+        # Verify removal
+        Start-Sleep -Milliseconds 500
+        if (-not (Test-Path $key)) {
+            Write-Log "VERIFIED: $key no longer exists"
+        } else {
+            Write-Log "WARNING: $key still exists after removal attempts"
+        }
+    } else {
+        Write-Log "Key not found (already removed): $key"
+    }
+}
+
+Write-Log "=== Cleanup completed ==="
+'@
+    
+    # Build the registry keys list for the script
+    $regKeysArray = ($failedRegKeys | ForEach-Object { "    `"$_`"" }) -join ",`n"
+    $taskScriptContent = $taskScriptContent -replace '\{REGISTRY_KEYS_PLACEHOLDER\}', $regKeysArray
+    
+    # Save the script to a temporary file
+    $tempScriptPath = "$env:TEMP\RemoveFlashRegistry_$(Get-Date -Format 'yyyyMMddHHmmss').ps1"
+    try {
+        $taskScriptContent | Out-File -FilePath $tempScriptPath -Encoding UTF8 -Force
+        Write-Detail "Created temporary script: $tempScriptPath"
+    }
+    catch {
+        Write-Fail "Could not create temporary script: $($_.Exception.Message)"
+        $tempScriptPath = $null
+    }
+    
+    if ($tempScriptPath -and (Test-Path $tempScriptPath)) {
+        # Create and run the scheduled task
+        $taskName = "RemoveFlashRegistry_$(Get-Date -Format 'yyyyMMddHHmmss')"
+        
+        try {
+            Write-Detail "Creating scheduled task: $taskName"
+            
+            # Define the action (run PowerShell with the script)
+            $action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument "-ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File `"$tempScriptPath`""
+            
+            # Define the principal (run as SYSTEM with highest privileges)
+            $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+            
+            # Define settings
+            $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -DontStopOnIdleEnd
+            
+            # Register the task
+            $task = Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force -ErrorAction Stop
+            Write-Success "Scheduled task created successfully"
+            
+            # Run the task
+            Write-Detail "Starting scheduled task..."
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            Write-Detail "Task started, waiting for completion..."
+            
+            # Wait for task to complete
+            $maxWait = 30
+            $waited = 0
+            while ($waited -lt $maxWait) {
+                Start-Sleep -Seconds 1
+                $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+                if ($taskInfo -and $taskInfo.LastTaskResult -ne 267009) { # 267009 = task is running
+                    break
+                }
+                $waited++
+            }
+            
+            # Check task result
+            $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($taskInfo) {
+                Write-Detail "Task completed with result code: $($taskInfo.LastTaskResult)"
+                
+                if ($taskInfo.LastTaskResult -eq 0) {
+                    Write-Success "Scheduled task completed successfully"
+                } else {
+                    Write-Warn "Task completed with non-zero exit code: $($taskInfo.LastTaskResult)"
+                }
+            }
+            
+            # Display log output if available
+            $logFile = "$env:TEMP\FlashRegistryCleanup.log"
+            if (Test-Path $logFile) {
+                Write-Detail "Reading task log output..."
+                $logContent = Get-Content $logFile -ErrorAction SilentlyContinue
+                foreach ($line in $logContent) {
+                    Write-Detail "  $line"
+                }
+            }
+            
+            # Clean up the scheduled task
+            Write-Detail "Removing scheduled task..."
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+            Write-Success "Scheduled task removed"
+            
+        }
+        catch {
+            Write-Fail "Error with scheduled task: $($_.Exception.Message)"
+        }
+        finally {
+            # Clean up temporary script file
+            if (Test-Path $tempScriptPath) {
+                Remove-Item $tempScriptPath -Force -ErrorAction SilentlyContinue
+                Write-Detail "Removed temporary script file"
+            }
+        }
+        
+        # Verify which keys were successfully removed
+        Write-Detail "Verifying registry key removal..."
+        $stillFailed = @()
+        foreach ($key in $failedRegKeys) {
+            if (Test-Path $key) {
+                Write-Fail "Still exists: $key"
+                $stillFailed += $key
+            } else {
+                Write-Success "Successfully removed: $key"
+            }
+        }
+        
+        if ($stillFailed.Count -eq 0) {
+            Write-Success "All stubborn registry keys were removed via scheduled task!"
+        } else {
+            Write-Warn "$($stillFailed.Count) registry key(s) could not be removed even with scheduled task"
+        }
     }
 }
 
