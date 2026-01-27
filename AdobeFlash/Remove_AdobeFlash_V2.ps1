@@ -576,6 +576,126 @@ Write-Log "=== Cleanup completed ==="
 Write-Host ""
 
 # ============================================================================
+# MANUAL CLEANUP - REGISTRY - Nuclear Option
+# ============================================================================
+
+#Requires -RunAsAdministrator
+
+Write-Host "=== Nuclear Option: TrustedInstaller Registry Removal ===" -ForegroundColor Cyan
+Write-Host "WARNING: This uses advanced Windows internals" -ForegroundColor Yellow
+Write-Host ""
+
+$registryKeys = @(
+    "HKLM:\SOFTWARE\Adobe\FlashPlayer",
+    "HKLM:\SOFTWARE\Macromedia",
+    "HKLM:\SOFTWARE\WOW6432Node\Adobe\FlashPlayer",
+    "HKLM:\SOFTWARE\WOW6432Node\Macromedia"
+)
+
+# Method 1: Take ownership with TrustedInstaller privileges
+Write-Host "[METHOD 1] Using TrustedInstaller service..." -ForegroundColor Cyan
+
+foreach ($key in $registryKeys) {
+    if (Test-Path $key) {
+        Write-Host "Processing: $key" -ForegroundColor Gray
+        
+        $regPath = $key -replace '^HKLM:\\', 'HKLM\'
+        
+        # Start TrustedInstaller service
+        Write-Host "  Starting TrustedInstaller service..." -ForegroundColor Gray
+        $service = Get-Service -Name TrustedInstaller
+        if ($service.Status -ne 'Running') {
+            Start-Service -Name TrustedInstaller
+            Start-Sleep -Seconds 2
+        }
+        
+        # Use PsExec to run as TrustedInstaller (if available)
+        # Or use a scheduled task with specific security context
+        
+        # Alternative: Use .NET reflection to enable SE_RESTORE_NAME privilege
+        try {
+            $regKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
+                $regPath.Replace('HKLM\', ''),
+                [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+                [System.Security.AccessControl.RegistryRights]::FullControl
+            )
+            
+            if ($regKey) {
+                # Take ownership
+                $acl = $regKey.GetAccessControl()
+                $admin = New-Object System.Security.Principal.NTAccount("Administrators")
+                $acl.SetOwner($admin)
+                $regKey.SetAccessControl($acl)
+                
+                # Grant full control
+                $rule = New-Object System.Security.AccessControl.RegistryAccessRule(
+                    $admin,
+                    [System.Security.AccessControl.RegistryRights]::FullControl,
+                    [System.Security.AccessControl.AccessControlType]::Allow
+                )
+                $acl.AddAccessRule($rule)
+                $regKey.SetAccessControl($acl)
+                
+                $regKey.Close()
+                
+                Write-Host "  Permissions modified, attempting deletion..." -ForegroundColor Gray
+                Remove-Item -Path $key -Recurse -Force -ErrorAction Stop
+                Write-Host "  [SUCCESS] Removed: $key" -ForegroundColor Green
+            }
+        }
+        catch {
+            Write-Host "  [FAILED] $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+}
+
+# Method 2: Delete subkeys individually with enumeration
+Write-Host "`n[METHOD 2] Individual subkey removal..." -ForegroundColor Cyan
+
+foreach ($key in $registryKeys) {
+    if (Test-Path $key) {
+        Write-Host "Processing: $key" -ForegroundColor Gray
+        
+        # Query subkeys with reg.exe
+        $regPath = $key -replace '^HKLM:\\', 'HKEY_LOCAL_MACHINE\'
+        $queryResult = reg query "$regPath" 2>&1
+        
+        if ($queryResult -match 'HKEY_LOCAL_MACHINE') {
+            $subkeys = $queryResult | Where-Object { $_ -match 'HKEY_LOCAL_MACHINE' } | ForEach-Object { $_.Trim() }
+            
+            Write-Host "  Found $($subkeys.Count) subkey(s)" -ForegroundColor Gray
+            
+            # Delete each subkey
+            foreach ($subkey in $subkeys) {
+                if ($subkey -ne $regPath) {
+                    Write-Host "  Deleting: $subkey" -ForegroundColor Gray
+                    $proc = Start-Process -FilePath "reg.exe" -ArgumentList "delete `"$subkey`" /f" -Wait -PassThru -NoNewWindow
+                    if ($proc.ExitCode -eq 0) {
+                        Write-Host "    [OK] Deleted" -ForegroundColor Green
+                    }
+                }
+            }
+            
+            # Now try to delete parent
+            $proc = Start-Process -FilePath "reg.exe" -ArgumentList "delete `"$regPath`" /f" -Wait -PassThru -NoNewWindow
+            if ($proc.ExitCode -eq 0) {
+                Write-Host "  [SUCCESS] Removed parent key" -ForegroundColor Green
+            }
+        }
+    }
+}
+
+# Verification
+Write-Host "`n=== VERIFICATION ===" -ForegroundColor Cyan
+foreach ($key in $registryKeys) {
+    if (Test-Path $key) {
+        Write-Host "[STILL EXISTS] $key" -ForegroundColor Red
+    } else {
+        Write-Host "[REMOVED] $key" -ForegroundColor Green
+    }
+}
+
+# ============================================================================
 # MANUAL CLEANUP - SCHEDULED TASKS
 # ============================================================================
 Write-Step "Removing scheduled tasks"
