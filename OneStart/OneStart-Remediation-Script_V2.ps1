@@ -1322,7 +1322,7 @@ function Remove-MalwareRegistryKeys {
     Write-Log "Phase 1: Removing HKLM registry keys..." -Level INFO
     
     foreach ($keyPath in $HKLMPaths) {
-        Remove-RegistryKeyRecursive -KeyPath $keyPath
+        $null = Remove-RegistryKeyRecursive -KeyPath $keyPath  # <-- FIX: Capture return
     }
     
     Write-Log "Phase 2: Removing per-user registry keys..." -Level INFO
@@ -1361,7 +1361,7 @@ function Remove-MalwareRegistryKeys {
                     if ($matchingKeys) {
                         Write-Log "      Found $($matchingKeys.Count) matching key(s)" -Level WARNING
                         foreach ($key in $matchingKeys) {
-                            Remove-RegistryKeyRecursive -KeyPath $key.PSPath
+                            $null = Remove-RegistryKeyRecursive -KeyPath $key.PSPath  # <-- FIX: Capture return
                         }
                     } else {
                         Write-Log "      [NOT FOUND] No keys match pattern" -Level INFO
@@ -1379,7 +1379,7 @@ function Remove-MalwareRegistryKeys {
                 }
                 
             } else {
-                Remove-RegistryKeyRecursive -KeyPath $searchPath
+                $null = Remove-RegistryKeyRecursive -KeyPath $searchPath  # <-- FIX: Capture return
             }
         }
     }
