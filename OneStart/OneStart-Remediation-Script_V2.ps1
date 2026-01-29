@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Malware Remediation Framework - Configuration
+# Malware Remediation Framework - OneStart.AI
 # ============================================================================ #
 # Author: sentinelrshuser
 # Purpose: Centralized configuration for malware remediation
@@ -82,27 +82,27 @@ $MalwareConfig = @{
         "C:\WINDOWS\system32\config\systemprofile\AppData\Local\OneStart.ai",
         "C:\WINDOWS\system32\config\systemprofile\PDFEditor"
     )
-
-        # Browser hijacking entries (specific patterns)
+    
+    # Registry key patterns (HKLM) - for cleanup
+    RegistryHKLM = @(
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OneStart_RASAPI32",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OneStart_RASMANCS",
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\onestart.exe"
+    )
+    
+    # Registry patterns for user hives (HKU) - for cleanup
+    RegistryHKUPatterns = @(
+        "Software\OneStart*",
+        "Software\PDFEditor*",
+        "Software\Clients\StartMenuInternet\OneStart*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*OneStart*",
+        "Software\Classes\OneStart*",
+        "Software\Classes\OSBHTML*"
+    )
+    
+    # Browser hijacking entries (specific patterns)
     BrowserStartMenuPatterns = @(
         "OneStart*"
-    )
-    
-    # File type associations to clean
-    FileTypeAssociations = @(
-        ".htm",
-        ".html",
-        ".pdf",
-        ".shtml",
-        ".xht",
-        ".xhtml"
-    )
-    
-    # URL protocol handlers
-    URLProtocols = @(
-        "http",
-        "https",
-        "ftp"
     )
 }
 
@@ -319,292 +319,6 @@ function New-ServiceRecord {
     }
 }
 
-function New-RegistryKeyRecord {
-    <#
-    .SYNOPSIS
-    Creates a detailed registry key tracking record (for full key removal)
-    #>
-    param(
-        [string]$KeyPath,
-        [string]$Status,
-        [string]$ErrorMessage = $null,
-        [int]$SubkeyCount = 0,
-        [int]$ValueCount = 0
-    )
-    
-    return @{
-        KeyPath = $KeyPath
-        SubkeyCount = $SubkeyCount
-        ValueCount = $ValueCount
-        Status = $Status
-        Timestamp = Get-Date
-        ErrorMessage = $ErrorMessage
-    }
-}
-
-# ============================================================================ #
-# PROCESS TERMINATION
-# ============================================================================ #
-
-function Stop-MalwareProcess {
-    <#
-    .SYNOPSIS
-    Terminates processes with detailed tracking
-    
-    .DESCRIPTION
-    Attempts to stop processes, verifies termination, and logs results
-    with comprehensive tracking for analysis
-    #>
-    
-    param(
-        [Parameter(Mandatory=$true)]
-        [array]$ProcessNames
-    )
-    
-    Write-Log "========================================" -Level INFO
-    Write-Log "PROCESS TERMINATION MODULE" -Level INFO
-    Write-Log "========================================" -Level INFO
-    Write-Log "Target processes: $($ProcessNames.Count)" -Level INFO
-    
-    foreach ($processName in $ProcessNames) {
-        $RemediationResults.Summary.ProcessesChecked++
-        
-        Write-Log "Checking for process: $processName" -Level INFO
-        
-        # Check if process exists
-        $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
-        
-        if (-not $processes) {
-            # Process not found
-            Write-Log "  [NOT FOUND] Process not running: $processName" -Level INFO
-            
-            $record = New-ProcessRecord -ProcessName $processName -Status "NOT_FOUND"
-            $RemediationResults.Processes.NotFound += $record
-            $RemediationResults.Summary.ProcessesNotFound++
-            continue
-        }
-        
-        # Process found - capture details
-        $pidList = $processes.Id
-        $RemediationResults.Summary.ProcessesFound++
-        
-        Write-Log "  [FOUND] Running instances: $($processes.Count) | PIDs: $($pidList -join ', ')" -Level WARNING
-        
-        try {
-            # Attempt to terminate
-            $processes | Stop-Process -Force -ErrorAction Stop
-            Start-Sleep -Milliseconds 500
-            
-            # Verify termination
-            $stillRunning = Get-Process -Name $processName -ErrorAction SilentlyContinue
-            
-            if (-not $stillRunning) {
-                # Successfully killed
-                Write-Log "  [SUCCESS] Terminated: $processName (PIDs: $($pidList -join ', '))" -Level SUCCESS
-                
-                $record = New-ProcessRecord -ProcessName $processName -Status "KILLED" `
-                    -PIDs $pidList -ProcessObjects $processes
-                $RemediationResults.Processes.Killed += $record
-                $RemediationResults.Summary.ProcessesKilled++
-                
-            } else {
-                # Failed to kill
-                $survivingPIDs = $stillRunning.Id
-                Write-Log "  [FAILED] Still running: $processName (PIDs: $($survivingPIDs -join ', '))" -Level ERROR
-                
-                $record = New-ProcessRecord -ProcessName $processName -Status "FAILED" `
-                    -PIDs $survivingPIDs -ProcessObjects $stillRunning `
-                    -ErrorMessage "Process survived termination attempt"
-                $RemediationResults.Processes.Failed += $record
-                $RemediationResults.Summary.ProcessesFailed++
-            }
-            
-        } catch {
-            # Unexpected error during termination
-            $errorMsg = $_.Exception.Message
-            Write-Log "  [ERROR] Exception during termination: $processName - $errorMsg" -Level ERROR
-            
-            $record = New-ProcessRecord -ProcessName $processName -Status "ERROR" `
-                -PIDs $pidList -ProcessObjects $processes -ErrorMessage $errorMsg
-            $RemediationResults.Processes.Errored += $record
-            $RemediationResults.Summary.ProcessesErrored++
-            
-            $RemediationResults.CriticalErrors += "Process: $processName - $errorMsg"
-        }
-    }
-    
-    Write-Log "========================================" -Level INFO
-    Write-Log "PROCESS TERMINATION SUMMARY" -Level INFO
-    Write-Log "  Checked: $($RemediationResults.Summary.ProcessesChecked)" -Level INFO
-    Write-Log "  Found: $($RemediationResults.Summary.ProcessesFound)" -Level INFO
-    Write-Log "  Killed: $($RemediationResults.Summary.ProcessesKilled)" -Level SUCCESS
-    Write-Log "  Failed: $($RemediationResults.Summary.ProcessesFailed)" -Level ERROR
-    Write-Log "  Errored: $($RemediationResults.Summary.ProcessesErrored)" -Level ERROR
-    Write-Log "  Not Found: $($RemediationResults.Summary.ProcessesNotFound)" -Level INFO
-    Write-Log "========================================" -Level INFO
-}
-
-# ============================================================================ #
-# SERVICE REMEDIATION
-# ============================================================================ #
-
-function Stop-MalwareService {
-    <#
-    .SYNOPSIS
-    Stops and removes malicious services with detailed tracking
-    
-    .DESCRIPTION
-    - Checks if service exists
-    - Captures service details before remediation
-    - Attempts to stop running services
-    - Attempts to remove/delete services
-    - Verifies both stop and removal
-    - Tracks all states and errors
-    #>
-    
-    param(
-        [Parameter(Mandatory=$true)]
-        [array]$ServiceNames
-    )
-    
-    Write-Log "========================================" -Level INFO
-    Write-Log "SERVICE REMEDIATION MODULE" -Level INFO
-    Write-Log "========================================" -Level INFO
-    Write-Log "Target services: $($ServiceNames.Count)" -Level INFO
-    
-    foreach ($serviceName in $ServiceNames) {
-        $RemediationResults.Summary.ServicesChecked++
-        
-        Write-Log "Checking for service: $serviceName" -Level INFO
-        
-        # Check if service exists
-        $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-        
-        if (-not $service) {
-            # Service not found
-            Write-Log "  [NOT FOUND] Service does not exist: $serviceName" -Level INFO
-            
-            $record = New-ServiceRecord -ServiceName $serviceName -Status "NOT_FOUND"
-            $RemediationResults.Services.NotFound += $record
-            $RemediationResults.Summary.ServicesNotFound++
-            continue
-        }
-        
-        # Service exists - capture details
-        $RemediationResults.Summary.ServicesFound++
-        $serviceDetails = Get-ServiceDetails -Service $service
-        
-        Write-Log "  [FOUND] Service exists" -Level WARNING
-        Write-Log "    Display Name: $($serviceDetails.DisplayName)" -Level INFO
-        Write-Log "    Status: $($serviceDetails.Status)" -Level INFO
-        Write-Log "    Start Type: $($serviceDetails.StartType)" -Level INFO
-        Write-Log "    Path: $($serviceDetails.PathName)" -Level INFO
-        
-        $stopResult = "NOT_ATTEMPTED"
-        $removalResult = "NOT_ATTEMPTED"
-        $overallSuccess = $true
-        
-        # STEP 1: Stop the service if running
-        if ($service.Status -eq 'Running') {
-            Write-Log "  [STOPPING] Attempting to stop service..." -Level INFO
-            
-            try {
-                Stop-Service -Name $serviceName -Force -ErrorAction Stop
-                Start-Sleep -Milliseconds 500
-                
-                # Verify stop
-                $serviceCheck = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-                if ($serviceCheck.Status -eq 'Stopped') {
-                    Write-Log "  [SUCCESS] Service stopped" -Level SUCCESS
-                    $stopResult = "SUCCESS"
-                } else {
-                    Write-Log "  [FAILED] Service still running" -Level ERROR
-                    $stopResult = "FAILED"
-                    $overallSuccess = $false
-                }
-            } catch {
-                Write-Log "  [ERROR] Failed to stop service: $($_.Exception.Message)" -Level ERROR
-                $stopResult = "ERROR"
-                $overallSuccess = $false
-            }
-        } else {
-            Write-Log "  [SKIPPED] Service not running (Status: $($service.Status))" -Level INFO
-            $stopResult = "NOT_RUNNING"
-        }
-        
-        # STEP 2: Remove/Delete the service
-        Write-Log "  [REMOVING] Attempting to delete service..." -Level INFO
-        
-        try {
-            # Try using sc.exe for deletion (more reliable)
-            $scResult = & sc.exe delete $serviceName 2>&1
-            Start-Sleep -Milliseconds 500
-            
-            # Verify removal
-            $serviceCheck = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-            if (-not $serviceCheck) {
-                Write-Log "  [SUCCESS] Service deleted" -Level SUCCESS
-                $removalResult = "SUCCESS"
-            } else {
-                Write-Log "  [FAILED] Service still exists after deletion" -Level ERROR
-                $removalResult = "FAILED"
-                $overallSuccess = $false
-            }
-        } catch {
-            Write-Log "  [ERROR] Failed to delete service: $($_.Exception.Message)" -Level ERROR
-            $removalResult = "ERROR"
-            $overallSuccess = $false
-        }
-        
-        # STEP 3: Record results
-        if ($overallSuccess -and $removalResult -eq "SUCCESS") {
-            # Fully remediated
-            Write-Log "  [COMPLETE] Service stopped and removed: $serviceName" -Level SUCCESS
-            
-            $record = New-ServiceRecord -ServiceName $serviceName -Status "REMOVED" `
-                -ServiceDetails $serviceDetails -StopResult $stopResult -RemovalResult $removalResult
-            $RemediationResults.Services.Removed += $record
-            $RemediationResults.Summary.ServicesRemoved++
-            
-        } elseif ($removalResult -eq "FAILED" -or $stopResult -eq "FAILED") {
-            # Failed to remediate
-            Write-Log "  [FAILED] Service remediation incomplete: $serviceName" -Level ERROR
-            
-            $record = New-ServiceRecord -ServiceName $serviceName -Status "FAILED" `
-                -ServiceDetails $serviceDetails -StopResult $stopResult -RemovalResult $removalResult `
-                -ErrorMessage "Stop: $stopResult | Removal: $removalResult"
-            $RemediationResults.Services.Failed += $record
-            $RemediationResults.Summary.ServicesFailed++
-            
-        } else {
-            # Error during remediation
-            Write-Log "  [ERROR] Service remediation error: $serviceName" -Level ERROR
-            
-            $record = New-ServiceRecord -ServiceName $serviceName -Status "ERROR" `
-                -ServiceDetails $serviceDetails -StopResult $stopResult -RemovalResult $removalResult `
-                -ErrorMessage "Stop: $stopResult | Removal: $removalResult"
-            $RemediationResults.Services.Errored += $record
-            $RemediationResults.Summary.ServicesErrored++
-            
-            $RemediationResults.CriticalErrors += "Service: $serviceName - Stop: $stopResult | Removal: $removalResult"
-        }
-    }
-    
-    Write-Log "========================================" -Level INFO
-    Write-Log "SERVICE REMEDIATION SUMMARY" -Level INFO
-    Write-Log "  Checked: $($RemediationResults.Summary.ServicesChecked)" -Level INFO
-    Write-Log "  Found: $($RemediationResults.Summary.ServicesFound)" -Level INFO
-    Write-Log "  Removed: $($RemediationResults.Summary.ServicesRemoved)" -Level SUCCESS
-    Write-Log "  Failed: $($RemediationResults.Summary.ServicesFailed)" -Level ERROR
-    Write-Log "  Errored: $($RemediationResults.Summary.ServicesErrored)" -Level ERROR
-    Write-Log "  Not Found: $($RemediationResults.Summary.ServicesNotFound)" -Level INFO
-    Write-Log "========================================" -Level INFO
-}
-
-# ============================================================================ #
-# SCHEDULED TASK REMEDIATION
-# ============================================================================ #
-
 function Get-TaskDetails {
     <#
     .SYNOPSIS
@@ -664,152 +378,10 @@ function New-TaskRecord {
     }
 }
 
-function Remove-MalwareTask {
-    <#
-    .SYNOPSIS
-    Removes scheduled tasks with detailed tracking
-    
-    .DESCRIPTION
-    - Checks if task exists (supports wildcards)
-    - Captures task details before remediation
-    - Attempts to unregister/delete tasks
-    - Verifies removal
-    - Tracks all states and errors
-    #>
-    
-    param(
-        [Parameter(Mandatory=$true)]
-        [array]$TaskPatterns
-    )
-    
-    Write-Log "========================================" -Level INFO
-    Write-Log "SCHEDULED TASK REMEDIATION MODULE" -Level INFO
-    Write-Log "========================================" -Level INFO
-    Write-Log "Target task patterns: $($TaskPatterns.Count)" -Level INFO
-    
-    foreach ($pattern in $TaskPatterns) {
-        $RemediationResults.Summary.TasksChecked++
-        
-        Write-Log "Checking for task pattern: $pattern" -Level INFO
-        
-        # Search for matching tasks
-        $matchingTasks = @()
-        try {
-            # Get all tasks in root and search
-            $allTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
-                $_.TaskName -like $pattern -or $_.TaskPath -like "*$pattern*"
-            }
-            $matchingTasks = @($allTasks)
-        } catch {
-            Write-Log "  [WARNING] Error searching for tasks: $($_.Exception.Message)" -Level WARNING
-        }
-        
-        if ($matchingTasks.Count -eq 0) {
-            # No tasks found
-            Write-Log "  [NOT FOUND] No tasks match pattern: $pattern" -Level INFO
-            
-            $record = New-TaskRecord -TaskName $pattern -Status "NOT_FOUND"
-            $RemediationResults.Tasks.NotFound += $record
-            $RemediationResults.Summary.TasksNotFound++
-            continue
-        }
-        
-        # Tasks found - process each match
-        Write-Log "  [FOUND] $($matchingTasks.Count) task(s) match pattern: $pattern" -Level WARNING
-        
-        foreach ($task in $matchingTasks) {
-            $taskName = $task.TaskName
-            $taskPath = $task.TaskPath
-            $RemediationResults.Summary.TasksFound++
-            
-            # Capture task details
-            $taskDetails = Get-TaskDetails -TaskName $taskName
-            
-            Write-Log "    Task: $taskPath$taskName" -Level INFO
-            Write-Log "      State: $($taskDetails.State)" -Level INFO
-            Write-Log "      Actions: $($taskDetails.Actions)" -Level INFO
-            
-            $removalResult = "NOT_ATTEMPTED"
-            $overallSuccess = $true
-            
-            # Attempt to unregister task
-            Write-Log "    [REMOVING] Attempting to unregister task..." -Level INFO
-            
-            try {
-                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
-                Start-Sleep -Milliseconds 500
-                
-                # Verify removal
-                $taskCheck = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-                if (-not $taskCheck) {
-                    Write-Log "    [SUCCESS] Task unregistered" -Level SUCCESS
-                    $removalResult = "SUCCESS"
-                } else {
-                    Write-Log "    [FAILED] Task still exists" -Level ERROR
-                    $removalResult = "FAILED"
-                    $overallSuccess = $false
-                }
-            } catch {
-                Write-Log "    [ERROR] Failed to unregister: $($_.Exception.Message)" -Level ERROR
-                $removalResult = "ERROR"
-                $overallSuccess = $false
-            }
-            
-            # Record results
-            if ($overallSuccess -and $removalResult -eq "SUCCESS") {
-                # Fully remediated
-                Write-Log "    [COMPLETE] Task removed: $taskName" -Level SUCCESS
-                
-                $record = New-TaskRecord -TaskName $taskName -Status "REMOVED" `
-                    -TaskDetails $taskDetails -RemovalResult $removalResult
-                $RemediationResults.Tasks.Removed += $record
-                $RemediationResults.Summary.TasksRemoved++
-                
-            } elseif ($removalResult -eq "FAILED") {
-                # Failed to remediate
-                Write-Log "    [FAILED] Task removal incomplete: $taskName" -Level ERROR
-                
-                $record = New-TaskRecord -TaskName $taskName -Status "FAILED" `
-                    -TaskDetails $taskDetails -RemovalResult $removalResult `
-                    -ErrorMessage "Task still exists after removal"
-                $RemediationResults.Tasks.Failed += $record
-                $RemediationResults.Summary.TasksFailed++
-                
-            } else {
-                # Error during remediation
-                Write-Log "    [ERROR] Task removal error: $taskName" -Level ERROR
-                
-                $record = New-TaskRecord -TaskName $taskName -Status "ERROR" `
-                    -TaskDetails $taskDetails -RemovalResult $removalResult `
-                    -ErrorMessage "Removal: $removalResult"
-                $RemediationResults.Tasks.Errored += $record
-                $RemediationResults.Summary.TasksErrored++
-                
-                $RemediationResults.CriticalErrors += "Task: $taskName - Removal: $removalResult"
-            }
-        }
-    }
-    
-    Write-Log "========================================" -Level INFO
-    Write-Log "SCHEDULED TASK REMEDIATION SUMMARY" -Level INFO
-    Write-Log "  Checked: $($RemediationResults.Summary.TasksChecked)" -Level INFO
-    Write-Log "  Found: $($RemediationResults.Summary.TasksFound)" -Level INFO
-    Write-Log "  Removed: $($RemediationResults.Summary.TasksRemoved)" -Level SUCCESS
-    Write-Log "  Failed: $($RemediationResults.Summary.TasksFailed)" -Level ERROR
-    Write-Log "  Errored: $($RemediationResults.Summary.TasksErrored)" -Level ERROR
-    Write-Log "  Not Found: $($RemediationResults.Summary.TasksNotFound)" -Level INFO
-    Write-Log "========================================" -Level INFO
-
-}
-
-# ============================================================================ #
-# REGISTRY PERSISTENCE REMOVAL
-# ============================================================================ #
-
 function New-RegistryRecord {
     <#
     .SYNOPSIS
-    Creates a detailed registry tracking record
+    Creates a detailed registry tracking record (for values)
     #>
     param(
         [string]$KeyPath,
@@ -823,6 +395,29 @@ function New-RegistryRecord {
         KeyPath = $KeyPath
         ValueName = $ValueName
         ValueData = $ValueData
+        Status = $Status
+        Timestamp = Get-Date
+        ErrorMessage = $ErrorMessage
+    }
+}
+
+function New-RegistryKeyRecord {
+    <#
+    .SYNOPSIS
+    Creates a detailed registry key tracking record (for full key removal)
+    #>
+    param(
+        [string]$KeyPath,
+        [string]$Status,
+        [string]$ErrorMessage = $null,
+        [int]$SubkeyCount = 0,
+        [int]$ValueCount = 0
+    )
+    
+    return @{
+        KeyPath = $KeyPath
+        SubkeyCount = $SubkeyCount
+        ValueCount = $ValueCount
         Status = $Status
         Timestamp = Get-Date
         ErrorMessage = $ErrorMessage
@@ -846,6 +441,457 @@ function Get-UserSIDs {
         return @()
     }
 }
+
+function New-FileRecord {
+    <#
+    .SYNOPSIS
+    Creates a detailed file/folder tracking record
+    #>
+    param(
+        [string]$Path,
+        [string]$Status,
+        [string]$Type = "Unknown",
+        [long]$Size = 0,
+        [string]$ErrorMessage = $null
+    )
+    
+    return @{
+        Path = $Path
+        Type = $Type
+        Size = $Size
+        Status = $Status
+        Timestamp = Get-Date
+        ErrorMessage = $ErrorMessage
+    }
+}
+
+function Get-UserProfiles {
+    <#
+    .SYNOPSIS
+    Retrieves all user profile directories
+    #>
+    try {
+        $profiles = Get-ChildItem "C:\Users" -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '^(Public|Default|Default User|All Users)$' } |
+            Select-Object -ExpandProperty Name
+        
+        return $profiles
+    } catch {
+        Write-Log "  [ERROR] Failed to enumerate user profiles: $($_.Exception.Message)" -Level ERROR
+        return @()
+    }
+}
+
+function New-BrowserRecord {
+    <#
+    .SYNOPSIS
+    Creates a detailed browser entry tracking record
+    #>
+    param(
+        [string]$EntryPath,
+        [string]$EntryType,
+        [string]$Status,
+        [string]$ErrorMessage = $null
+    )
+    
+    return @{
+        EntryPath = $EntryPath
+        EntryType = $EntryType
+        Status = $Status
+        Timestamp = Get-Date
+        ErrorMessage = $ErrorMessage
+    }
+}
+
+function Get-RegistryKeyDetails {
+    <#
+    .SYNOPSIS
+    Captures registry key metadata before removal
+    #>
+    param(
+        [string]$KeyPath
+    )
+    
+    try {
+        if (Test-Path $KeyPath) {
+            $key = Get-Item $KeyPath -ErrorAction Stop
+            $subkeys = Get-ChildItem $KeyPath -ErrorAction SilentlyContinue
+            $values = Get-ItemProperty $KeyPath -ErrorAction SilentlyContinue
+            
+            return @{
+                Exists = $true
+                SubkeyCount = @($subkeys).Count
+                ValueCount = ($values.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" }).Count
+            }
+        } else {
+            return @{
+                Exists = $false
+                SubkeyCount = 0
+                ValueCount = 0
+            }
+        }
+    } catch {
+        return @{
+            Exists = $false
+            SubkeyCount = 0
+            ValueCount = 0
+        }
+    }
+}
+
+# ============================================================================ #
+# PROCESS TERMINATION
+# ============================================================================ #
+
+function Stop-MalwareProcess {
+    <#
+    .SYNOPSIS
+    Terminates processes with detailed tracking
+    #>
+    
+    param(
+        [Parameter(Mandatory=$true)]
+        [array]$ProcessNames
+    )
+    
+    Write-Log "========================================" -Level INFO
+    Write-Log "PROCESS TERMINATION MODULE" -Level INFO
+    Write-Log "========================================" -Level INFO
+    Write-Log "Target processes: $($ProcessNames.Count)" -Level INFO
+    
+    foreach ($processName in $ProcessNames) {
+        $RemediationResults.Summary.ProcessesChecked++
+        
+        Write-Log "Checking for process: $processName" -Level INFO
+        
+        $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
+        
+        if (-not $processes) {
+            Write-Log "  [NOT FOUND] Process not running: $processName" -Level INFO
+            
+            $record = New-ProcessRecord -ProcessName $processName -Status "NOT_FOUND"
+            $RemediationResults.Processes.NotFound += $record
+            $RemediationResults.Summary.ProcessesNotFound++
+            continue
+        }
+        
+        $pidList = $processes.Id
+        $RemediationResults.Summary.ProcessesFound++
+        
+        Write-Log "  [FOUND] Running instances: $($processes.Count) | PIDs: $($pidList -join ', ')" -Level WARNING
+        
+        try {
+            $processes | Stop-Process -Force -ErrorAction Stop
+            Start-Sleep -Milliseconds 500
+            
+            $stillRunning = Get-Process -Name $processName -ErrorAction SilentlyContinue
+            
+            if (-not $stillRunning) {
+                Write-Log "  [SUCCESS] Terminated: $processName (PIDs: $($pidList -join ', '))" -Level SUCCESS
+                
+                $record = New-ProcessRecord -ProcessName $processName -Status "KILLED" `
+                    -PIDs $pidList -ProcessObjects $processes
+                $RemediationResults.Processes.Killed += $record
+                $RemediationResults.Summary.ProcessesKilled++
+                
+            } else {
+                $survivingPIDs = $stillRunning.Id
+                Write-Log "  [FAILED] Still running: $processName (PIDs: $($survivingPIDs -join ', '))" -Level ERROR
+                
+                $record = New-ProcessRecord -ProcessName $processName -Status "FAILED" `
+                    -PIDs $survivingPIDs -ProcessObjects $stillRunning `
+                    -ErrorMessage "Process survived termination attempt"
+                $RemediationResults.Processes.Failed += $record
+                $RemediationResults.Summary.ProcessesFailed++
+            }
+            
+        } catch {
+            $errorMsg = $_.Exception.Message
+            Write-Log "  [ERROR] Exception during termination: $processName - $errorMsg" -Level ERROR
+            
+            $record = New-ProcessRecord -ProcessName $processName -Status "ERROR" `
+                -PIDs $pidList -ProcessObjects $processes -ErrorMessage $errorMsg
+            $RemediationResults.Processes.Errored += $record
+            $RemediationResults.Summary.ProcessesErrored++
+            
+            $RemediationResults.CriticalErrors += "Process: $processName - $errorMsg"
+        }
+    }
+    
+    Write-Log "========================================" -Level INFO
+    Write-Log "PROCESS TERMINATION SUMMARY" -Level INFO
+    Write-Log "  Checked: $($RemediationResults.Summary.ProcessesChecked)" -Level INFO
+    Write-Log "  Found: $($RemediationResults.Summary.ProcessesFound)" -Level INFO
+    Write-Log "  Killed: $($RemediationResults.Summary.ProcessesKilled)" -Level SUCCESS
+    Write-Log "  Failed: $($RemediationResults.Summary.ProcessesFailed)" -Level ERROR
+    Write-Log "  Errored: $($RemediationResults.Summary.ProcessesErrored)" -Level ERROR
+    Write-Log "  Not Found: $($RemediationResults.Summary.ProcessesNotFound)" -Level INFO
+    Write-Log "========================================" -Level INFO
+}
+
+# ============================================================================ #
+# SERVICE REMEDIATION
+# ============================================================================ #
+
+function Stop-MalwareService {
+    <#
+    .SYNOPSIS
+    Stops and removes malicious services with detailed tracking
+    #>
+    
+    param(
+        [Parameter(Mandatory=$true)]
+        [array]$ServiceNames
+    )
+    
+    Write-Log "========================================" -Level INFO
+    Write-Log "SERVICE REMEDIATION MODULE" -Level INFO
+    Write-Log "========================================" -Level INFO
+    Write-Log "Target services: $($ServiceNames.Count)" -Level INFO
+    
+    foreach ($serviceName in $ServiceNames) {
+        $RemediationResults.Summary.ServicesChecked++
+        
+        Write-Log "Checking for service: $serviceName" -Level INFO
+        
+        $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        
+        if (-not $service) {
+            Write-Log "  [NOT FOUND] Service does not exist: $serviceName" -Level INFO
+            
+            $record = New-ServiceRecord -ServiceName $serviceName -Status "NOT_FOUND"
+            $RemediationResults.Services.NotFound += $record
+            $RemediationResults.Summary.ServicesNotFound++
+            continue
+        }
+        
+        $RemediationResults.Summary.ServicesFound++
+        $serviceDetails = Get-ServiceDetails -Service $service
+        
+        Write-Log "  [FOUND] Service exists" -Level WARNING
+        Write-Log "    Display Name: $($serviceDetails.DisplayName)" -Level INFO
+        Write-Log "    Status: $($serviceDetails.Status)" -Level INFO
+        Write-Log "    Start Type: $($serviceDetails.StartType)" -Level INFO
+        Write-Log "    Path: $($serviceDetails.PathName)" -Level INFO
+        
+        $stopResult = "NOT_ATTEMPTED"
+        $removalResult = "NOT_ATTEMPTED"
+        $overallSuccess = $true
+        
+        if ($service.Status -eq 'Running') {
+            Write-Log "  [STOPPING] Attempting to stop service..." -Level INFO
+            
+            try {
+                Stop-Service -Name $serviceName -Force -ErrorAction Stop
+                Start-Sleep -Milliseconds 500
+                
+                $serviceCheck = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+                if ($serviceCheck.Status -eq 'Stopped') {
+                    Write-Log "  [SUCCESS] Service stopped" -Level SUCCESS
+                    $stopResult = "SUCCESS"
+                } else {
+                    Write-Log "  [FAILED] Service still running" -Level ERROR
+                    $stopResult = "FAILED"
+                    $overallSuccess = $false
+                }
+            } catch {
+                Write-Log "  [ERROR] Failed to stop service: $($_.Exception.Message)" -Level ERROR
+                $stopResult = "ERROR"
+                $overallSuccess = $false
+            }
+        } else {
+            Write-Log "  [SKIPPED] Service not running (Status: $($service.Status))" -Level INFO
+            $stopResult = "NOT_RUNNING"
+        }
+        
+        Write-Log "  [REMOVING] Attempting to delete service..." -Level INFO
+        
+        try {
+            $scResult = & sc.exe delete $serviceName 2>&1
+            Start-Sleep -Milliseconds 500
+            
+            $serviceCheck = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+            if (-not $serviceCheck) {
+                Write-Log "  [SUCCESS] Service deleted" -Level SUCCESS
+                $removalResult = "SUCCESS"
+            } else {
+                Write-Log "  [FAILED] Service still exists after deletion" -Level ERROR
+                $removalResult = "FAILED"
+                $overallSuccess = $false
+            }
+        } catch {
+            Write-Log "  [ERROR] Failed to delete service: $($_.Exception.Message)" -Level ERROR
+            $removalResult = "ERROR"
+            $overallSuccess = $false
+        }
+        
+        if ($overallSuccess -and $removalResult -eq "SUCCESS") {
+            Write-Log "  [COMPLETE] Service stopped and removed: $serviceName" -Level SUCCESS
+            
+            $record = New-ServiceRecord -ServiceName $serviceName -Status "REMOVED" `
+                -ServiceDetails $serviceDetails -StopResult $stopResult -RemovalResult $removalResult
+            $RemediationResults.Services.Removed += $record
+            $RemediationResults.Summary.ServicesRemoved++
+            
+        } elseif ($removalResult -eq "FAILED" -or $stopResult -eq "FAILED") {
+            Write-Log "  [FAILED] Service remediation incomplete: $serviceName" -Level ERROR
+            
+            $record = New-ServiceRecord -ServiceName $serviceName -Status "FAILED" `
+                -ServiceDetails $serviceDetails -StopResult $stopResult -RemovalResult $removalResult `
+                -ErrorMessage "Stop: $stopResult | Removal: $removalResult"
+            $RemediationResults.Services.Failed += $record
+            $RemediationResults.Summary.ServicesFailed++
+            
+        } else {
+            Write-Log "  [ERROR] Service remediation error: $serviceName" -Level ERROR
+            
+            $record = New-ServiceRecord -ServiceName $serviceName -Status "ERROR" `
+                -ServiceDetails $serviceDetails -StopResult $stopResult -RemovalResult $removalResult `
+                -ErrorMessage "Stop: $stopResult | Removal: $removalResult"
+            $RemediationResults.Services.Errored += $record
+            $RemediationResults.Summary.ServicesErrored++
+            
+            $RemediationResults.CriticalErrors += "Service: $serviceName - Stop: $stopResult | Removal: $removalResult"
+        }
+    }
+    
+    Write-Log "========================================" -Level INFO
+    Write-Log "SERVICE REMEDIATION SUMMARY" -Level INFO
+    Write-Log "  Checked: $($RemediationResults.Summary.ServicesChecked)" -Level INFO
+    Write-Log "  Found: $($RemediationResults.Summary.ServicesFound)" -Level INFO
+    Write-Log "  Removed: $($RemediationResults.Summary.ServicesRemoved)" -Level SUCCESS
+    Write-Log "  Failed: $($RemediationResults.Summary.ServicesFailed)" -Level ERROR
+    Write-Log "  Errored: $($RemediationResults.Summary.ServicesErrored)" -Level ERROR
+    Write-Log "  Not Found: $($RemediationResults.Summary.ServicesNotFound)" -Level INFO
+    Write-Log "========================================" -Level INFO
+}
+
+# ============================================================================ #
+# SCHEDULED TASK REMEDIATION
+# ============================================================================ #
+
+function Remove-MalwareTask {
+    <#
+    .SYNOPSIS
+    Removes scheduled tasks with detailed tracking
+    #>
+    
+    param(
+        [Parameter(Mandatory=$true)]
+        [array]$TaskPatterns
+    )
+    
+    Write-Log "========================================" -Level INFO
+    Write-Log "SCHEDULED TASK REMEDIATION MODULE" -Level INFO
+    Write-Log "========================================" -Level INFO
+    Write-Log "Target task patterns: $($TaskPatterns.Count)" -Level INFO
+    
+    foreach ($pattern in $TaskPatterns) {
+        $RemediationResults.Summary.TasksChecked++
+        
+        Write-Log "Checking for task pattern: $pattern" -Level INFO
+        
+        $matchingTasks = @()
+        try {
+            $allTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+                $_.TaskName -like $pattern -or $_.TaskPath -like "*$pattern*"
+            }
+            $matchingTasks = @($allTasks)
+        } catch {
+            Write-Log "  [WARNING] Error searching for tasks: $($_.Exception.Message)" -Level WARNING
+        }
+        
+        if ($matchingTasks.Count -eq 0) {
+            Write-Log "  [NOT FOUND] No tasks match pattern: $pattern" -Level INFO
+            
+            $record = New-TaskRecord -TaskName $pattern -Status "NOT_FOUND"
+            $RemediationResults.Tasks.NotFound += $record
+            $RemediationResults.Summary.TasksNotFound++
+            continue
+        }
+        
+        Write-Log "  [FOUND] $($matchingTasks.Count) task(s) match pattern: $pattern" -Level WARNING
+        
+        foreach ($task in $matchingTasks) {
+            $taskName = $task.TaskName
+            $taskPath = $task.TaskPath
+            $RemediationResults.Summary.TasksFound++
+            
+            $taskDetails = Get-TaskDetails -TaskName $taskName
+            
+            Write-Log "    Task: $taskPath$taskName" -Level INFO
+            Write-Log "      State: $($taskDetails.State)" -Level INFO
+            Write-Log "      Actions: $($taskDetails.Actions)" -Level INFO
+            
+            $removalResult = "NOT_ATTEMPTED"
+            $overallSuccess = $true
+            
+            Write-Log "    [REMOVING] Attempting to unregister task..." -Level INFO
+            
+            try {
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
+                Start-Sleep -Milliseconds 500
+                
+                $taskCheck = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+                if (-not $taskCheck) {
+                    Write-Log "    [SUCCESS] Task unregistered" -Level SUCCESS
+                    $removalResult = "SUCCESS"
+                } else {
+                    Write-Log "    [FAILED] Task still exists" -Level ERROR
+                    $removalResult = "FAILED"
+                    $overallSuccess = $false
+                }
+            } catch {
+                Write-Log "    [ERROR] Failed to unregister: $($_.Exception.Message)" -Level ERROR
+                $removalResult = "ERROR"
+                $overallSuccess = $false
+            }
+            
+            if ($overallSuccess -and $removalResult -eq "SUCCESS") {
+                Write-Log "    [COMPLETE] Task removed: $taskName" -Level SUCCESS
+                
+                $record = New-TaskRecord -TaskName $taskName -Status "REMOVED" `
+                    -TaskDetails $taskDetails -RemovalResult $removalResult
+                $RemediationResults.Tasks.Removed += $record
+                $RemediationResults.Summary.TasksRemoved++
+                
+            } elseif ($removalResult -eq "FAILED") {
+                Write-Log "    [FAILED] Task removal incomplete: $taskName" -Level ERROR
+                
+                $record = New-TaskRecord -TaskName $taskName -Status "FAILED" `
+                    -TaskDetails $taskDetails -RemovalResult $removalResult `
+                    -ErrorMessage "Task still exists after removal"
+                $RemediationResults.Tasks.Failed += $record
+                $RemediationResults.Summary.TasksFailed++
+                
+            } else {
+                Write-Log "    [ERROR] Task removal error: $taskName" -Level ERROR
+                
+                $record = New-TaskRecord -TaskName $taskName -Status "ERROR" `
+                    -TaskDetails $taskDetails -RemovalResult $removalResult `
+                    -ErrorMessage "Removal: $removalResult"
+                $RemediationResults.Tasks.Errored += $record
+                $RemediationResults.Summary.TasksErrored++
+                
+                $RemediationResults.CriticalErrors += "Task: $taskName - Removal: $removalResult"
+            }
+        }
+    }
+    
+    Write-Log "========================================" -Level INFO
+    Write-Log "SCHEDULED TASK REMEDIATION SUMMARY" -Level INFO
+    Write-Log "  Checked: $($RemediationResults.Summary.TasksChecked)" -Level INFO
+    Write-Log "  Found: $($RemediationResults.Summary.TasksFound)" -Level INFO
+    Write-Log "  Removed: $($RemediationResults.Summary.TasksRemoved)" -Level SUCCESS
+    Write-Log "  Failed: $($RemediationResults.Summary.TasksFailed)" -Level ERROR
+    Write-Log "  Errored: $($RemediationResults.Summary.TasksErrored)" -Level ERROR
+    Write-Log "  Not Found: $($RemediationResults.Summary.TasksNotFound)" -Level INFO
+    Write-Log "========================================" -Level INFO
+}
+
+# ============================================================================ #
+# REGISTRY PERSISTENCE REMOVAL
+# ============================================================================ #
 
 function Remove-RegistryValueByPattern {
     <#
@@ -880,7 +926,6 @@ function Remove-RegistryValueByPattern {
                 try {
                     Remove-ItemProperty -Path $KeyPath -Name $valueName -ErrorAction Stop
                     
-                    # Verify removal
                     $checkValue = Get-ItemProperty -Path $KeyPath -Name $valueName -ErrorAction SilentlyContinue
                     if (-not $checkValue) {
                         Write-Log "    [SUCCESS] Removed: $valueName" -Level SUCCESS
@@ -919,12 +964,6 @@ function Remove-MalwareRegistryPersistence {
     <#
     .SYNOPSIS
     Removes malware persistence from registry Run keys and RegisteredApplications
-    
-    .DESCRIPTION
-    Targets autostart locations:
-    - HKLM Run/RunOnce keys
-    - Per-user (HKU) Run/RunOnce keys
-    - RegisteredApplications entries
     #>
     
     param(
@@ -941,9 +980,6 @@ function Remove-MalwareRegistryPersistence {
     
     $totalRemoved = 0
     
-    # ----------------------------------------------------------------
-    # PHASE 1: HKLM Run Keys (System-wide autostart)
-    # ----------------------------------------------------------------
     Write-Log "Phase 1: Checking HKLM Run keys..." -Level INFO
     $RemediationResults.Summary.RegistryKeysChecked++
     
@@ -960,9 +996,6 @@ function Remove-MalwareRegistryPersistence {
         $totalRemoved += $removed
     }
     
-    # ----------------------------------------------------------------
-    # PHASE 2: Per-User Run Keys (HKU hive)
-    # ----------------------------------------------------------------
     Write-Log "Phase 2: Checking per-user Run keys..." -Level INFO
     
     $userSIDs = Get-UserSIDs
@@ -983,19 +1016,14 @@ function Remove-MalwareRegistryPersistence {
         }
     }
     
-    # ----------------------------------------------------------------
-    # PHASE 3: RegisteredApplications (Browser/App registration)
-    # ----------------------------------------------------------------
     Write-Log "Phase 3: Checking RegisteredApplications..." -Level INFO
     
-    # HKLM RegisteredApplications
     $hklmRegApps = "HKLM:\Software\RegisteredApplications"
     Write-Log "  Checking: $hklmRegApps" -Level INFO
     $RemediationResults.Summary.RegistryKeysChecked++
     $removed = Remove-RegistryValueByPattern -KeyPath $hklmRegApps -ValuePatterns $RegisteredAppPatterns
     $totalRemoved += $removed
     
-    # Per-user RegisteredApplications
     foreach ($sid in $userSIDs) {
         $hkuRegApps = "Registry::HKU\$sid\Software\RegisteredApplications"
         $RemediationResults.Summary.RegistryKeysChecked++
@@ -1003,9 +1031,6 @@ function Remove-MalwareRegistryPersistence {
         $totalRemoved += $removed
     }
     
-    # ----------------------------------------------------------------
-    # SUMMARY
-    # ----------------------------------------------------------------
     Write-Log "========================================" -Level INFO
     Write-Log "REGISTRY PERSISTENCE REMOVAL SUMMARY" -Level INFO
     Write-Log "  Keys Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
@@ -1049,7 +1074,6 @@ function Remove-PathItem {
         Remove-Item $Path -Recurse -Force -ErrorAction Stop
         Start-Sleep -Milliseconds 200
         
-        # Verify removal
         if (-not (Test-Path $Path)) {
             Write-Log "    [SUCCESS] Removed: $Path" -Level SUCCESS
             
@@ -1082,9 +1106,6 @@ function Remove-MalwareFiles {
     <#
     .SYNOPSIS
     Removes malware files and folders
-    
-    .DESCRIPTION
-    All patterns pulled from $MalwareConfig for centralized maintenance
     #>
     
     param(
@@ -1102,7 +1123,6 @@ function Remove-MalwareFiles {
     Write-Log "FILE & FOLDER CLEANUP MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
     
-    # PHASE 1: User-Specific Paths
     Write-Log "Phase 1: Removing user-specific paths..." -Level INFO
     
     $userProfiles = Get-UserProfiles
@@ -1114,7 +1134,6 @@ function Remove-MalwareFiles {
         foreach ($pathTemplate in $UserPaths) {
             $RemediationResults.Summary.PathsChecked++
             
-            # Replace {USER} token with actual username
             $actualPath = $pathTemplate -replace '\{USER\}', $user
             
             $result = Remove-PathItem -Path $actualPath
@@ -1127,7 +1146,6 @@ function Remove-MalwareFiles {
         }
     }
     
-    # PHASE 2: Download Folder Patterns
     Write-Log "Phase 2: Cleaning Downloads folder..." -Level INFO
     
     foreach ($user in $userProfiles) {
@@ -1155,13 +1173,11 @@ function Remove-MalwareFiles {
         }
     }
     
-    # PHASE 3: System-Level Paths
     Write-Log "Phase 3: Removing system-level paths..." -Level INFO
     
     foreach ($path in $SystemPaths) {
         $RemediationResults.Summary.PathsChecked++
         
-        # Handle wildcards in system paths
         if ($path -match '\*') {
             $parentPath = Split-Path $path -Parent
             $pattern = Split-Path $path -Leaf
@@ -1190,7 +1206,6 @@ function Remove-MalwareFiles {
         }
     }
     
-    # SUMMARY
     Write-Log "========================================" -Level INFO
     Write-Log "FILE & FOLDER CLEANUP SUMMARY" -Level INFO
     Write-Log "  Paths Checked: $($RemediationResults.Summary.PathsChecked)" -Level INFO
@@ -1206,42 +1221,6 @@ function Remove-MalwareFiles {
 # REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION)
 # ============================================================================ #
 
-function Get-RegistryKeyDetails {
-    <#
-    .SYNOPSIS
-    Captures registry key metadata before removal
-    #>
-    param(
-        [string]$KeyPath
-    )
-    
-    try {
-        if (Test-Path $KeyPath) {
-            $key = Get-Item $KeyPath -ErrorAction Stop
-            $subkeys = Get-ChildItem $KeyPath -ErrorAction SilentlyContinue
-            $values = Get-ItemProperty $KeyPath -ErrorAction SilentlyContinue
-            
-            return @{
-                Exists = $true
-                SubkeyCount = @($subkeys).Count
-                ValueCount = ($values.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" }).Count
-            }
-        } else {
-            return @{
-                Exists = $false
-                SubkeyCount = 0
-                ValueCount = 0
-            }
-        }
-    } catch {
-        return @{
-            Exists = $false
-            SubkeyCount = 0
-            ValueCount = 0
-        }
-    }
-}
-
 function Remove-RegistryKeyRecursive {
     <#
     .SYNOPSIS
@@ -1255,7 +1234,6 @@ function Remove-RegistryKeyRecursive {
     
     Write-Log "  Checking: $KeyPath" -Level INFO
     
-    # Check if key exists and get details
     $keyDetails = Get-RegistryKeyDetails -KeyPath $KeyPath
     
     if (-not $keyDetails.Exists) {
@@ -1266,15 +1244,12 @@ function Remove-RegistryKeyRecursive {
         return "NOT_FOUND"
     }
     
-    # Key exists - log details
     Write-Log "    [FOUND] Subkeys: $($keyDetails.SubkeyCount) | Values: $($keyDetails.ValueCount)" -Level WARNING
     
     try {
-        # Attempt removal
         Remove-Item -Path $KeyPath -Recurse -Force -ErrorAction Stop
         Start-Sleep -Milliseconds 200
         
-        # Verify removal
         if (-not (Test-Path $KeyPath)) {
             Write-Log "    [SUCCESS] Key removed" -Level SUCCESS
             
@@ -1314,11 +1289,6 @@ function Remove-MalwareRegistryKeys {
     <#
     .SYNOPSIS
     Removes malware registry keys (artifacts and configuration)
-    
-    .DESCRIPTION
-    Removes registry keys AFTER files are deleted to avoid file lock issues
-    - HKLM specific paths (exact matches)
-    - HKU pattern-based searches (per-user artifacts)
     #>
     
     param(
@@ -1333,18 +1303,12 @@ function Remove-MalwareRegistryKeys {
     Write-Log "REGISTRY CLEANUP MODULE (ARTIFACTS)" -Level INFO
     Write-Log "========================================" -Level INFO
     
-    # ----------------------------------------------------------------
-    # PHASE 1: HKLM Specific Paths
-    # ----------------------------------------------------------------
     Write-Log "Phase 1: Removing HKLM registry keys..." -Level INFO
     
     foreach ($keyPath in $HKLMPaths) {
         Remove-RegistryKeyRecursive -KeyPath $keyPath
     }
     
-    # ----------------------------------------------------------------
-    # PHASE 2: Per-User (HKU) Pattern-Based Cleanup
-    # ----------------------------------------------------------------
     Write-Log "Phase 2: Removing per-user registry keys..." -Level INFO
     
     $userSIDs = Get-UserSIDs
@@ -1354,19 +1318,15 @@ function Remove-MalwareRegistryKeys {
         Write-Log "  Processing SID: $sid" -Level INFO
         
         foreach ($pattern in $HKUPatterns) {
-            # Build full path with SID
             $basePath = "Registry::HKU\$sid"
             $searchPath = "$basePath\$pattern"
             
             Write-Log "    Searching: $searchPath" -Level INFO
             
-            # Handle wildcard patterns
             if ($pattern -match '\*') {
-                # Get parent path and search pattern
                 $parts = $pattern -split '\\'
                 $currentPath = $basePath
                 
-                # Navigate to the deepest non-wildcard path
                 $searchFromIndex = 0
                 for ($i = 0; $i -lt $parts.Count; $i++) {
                     if ($parts[$i] -match '\*') {
@@ -1376,12 +1336,9 @@ function Remove-MalwareRegistryKeys {
                     $currentPath = "$currentPath\$($parts[$i])"
                 }
                 
-                # Check if base path exists
                 if (Test-Path $currentPath) {
-                    # Build search pattern
                     $searchPattern = $parts[$searchFromIndex]
                     
-                    # Find matching keys
                     $matchingKeys = Get-ChildItem $currentPath -ErrorAction SilentlyContinue |
                         Where-Object { $_.PSChildName -like $searchPattern }
                     
@@ -1406,15 +1363,11 @@ function Remove-MalwareRegistryKeys {
                 }
                 
             } else {
-                # Exact path match
                 Remove-RegistryKeyRecursive -KeyPath $searchPath
             }
         }
     }
     
-    # ----------------------------------------------------------------
-    # SUMMARY
-    # ----------------------------------------------------------------
     Write-Log "========================================" -Level INFO
     Write-Log "REGISTRY CLEANUP SUMMARY" -Level INFO
     Write-Log "  Keys Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
@@ -1427,27 +1380,6 @@ function Remove-MalwareRegistryKeys {
 # ============================================================================ #
 # BROWSER ENTRY CLEANUP
 # ============================================================================ #
-
-function New-BrowserRecord {
-    <#
-    .SYNOPSIS
-    Creates a detailed browser entry tracking record
-    #>
-    param(
-        [string]$EntryPath,
-        [string]$EntryType,
-        [string]$Status,
-        [string]$ErrorMessage = $null
-    )
-    
-    return @{
-        EntryPath = $EntryPath
-        EntryType = $EntryType
-        Status = $Status
-        Timestamp = Get-Date
-        ErrorMessage = $ErrorMessage
-    }
-}
 
 function Remove-BrowserEntry {
     <#
@@ -1503,12 +1435,6 @@ function Remove-MalwareBrowserEntries {
     <#
     .SYNOPSIS
     Removes browser hijacking registry entries
-    
-    .DESCRIPTION
-    Targets browser registration to prevent false positives in software inventory:
-    - StartMenuInternet registrations (appears in Default Apps)
-    - UserChoice associations (file type handlers)
-    - ProgID classes (application classes)
     #>
     
     param(
@@ -1523,9 +1449,6 @@ function Remove-MalwareBrowserEntries {
     
     $totalRemoved = 0
     
-    # ----------------------------------------------------------------
-    # PHASE 1: HKLM StartMenuInternet (System-wide browser registration)
-    # ----------------------------------------------------------------
     Write-Log "Phase 1: Removing HKLM StartMenuInternet entries..." -Level INFO
     
     $hklmBrowserPath = "HKLM:\Software\Clients\StartMenuInternet"
@@ -1548,9 +1471,6 @@ function Remove-MalwareBrowserEntries {
         }
     }
     
-    # ----------------------------------------------------------------
-    # PHASE 2: Per-User StartMenuInternet (HKU)
-    # ----------------------------------------------------------------
     Write-Log "Phase 2: Removing per-user StartMenuInternet entries..." -Level INFO
     
     $userSIDs = Get-UserSIDs
@@ -1578,9 +1498,6 @@ function Remove-MalwareBrowserEntries {
         }
     }
     
-    # ----------------------------------------------------------------
-    # PHASE 3: ProgID Classes (Application identifiers)
-    # ----------------------------------------------------------------
     Write-Log "Phase 3: Removing ProgID classes..." -Level INFO
     
     foreach ($sid in $userSIDs) {
@@ -1603,7 +1520,6 @@ function Remove-MalwareBrowserEntries {
         }
     }
     
-    # Also check HKLM Classes
     $hklmClassesPath = "HKLM:\Software\Classes"
     if (Test-Path $hklmClassesPath) {
         foreach ($pattern in $BrowserPatterns) {
@@ -1621,9 +1537,6 @@ function Remove-MalwareBrowserEntries {
         }
     }
     
-    # ----------------------------------------------------------------
-    # PHASE 4: UserChoice Associations (Default program overrides)
-    # ----------------------------------------------------------------
     Write-Log "Phase 4: Checking UserChoice associations..." -Level INFO
     
     foreach ($sid in $userSIDs) {
@@ -1645,7 +1558,6 @@ function Remove-MalwareBrowserEntries {
                                     Write-Log "    [FOUND] UserChoice for $($ext.PSChildName) : $progId" -Level WARNING
                                     $RemediationResults.Summary.RegistryKeysChecked++
                                     
-                                    # UserChoice keys are protected - note but don't force remove
                                     Write-Log "    [INFO] UserChoice key is hash-protected by Windows" -Level INFO
                                     Write-Log "    [INFO] Will be reset when user changes default program" -Level INFO
                                     
@@ -1663,9 +1575,6 @@ function Remove-MalwareBrowserEntries {
         }
     }
     
-    # ----------------------------------------------------------------
-    # SUMMARY
-    # ----------------------------------------------------------------
     Write-Log "========================================" -Level INFO
     Write-Log "BROWSER ENTRY CLEANUP SUMMARY" -Level INFO
     Write-Log "  Entries Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
@@ -1715,3 +1624,36 @@ Start-Sleep -Seconds 2
 # Execute browser entry cleanup (LAST - most visible to users)
 Remove-MalwareBrowserEntries -BrowserPatterns $MalwareConfig.BrowserStartMenuPatterns
 Start-Sleep -Seconds 2
+
+# ============================================================================ #
+# FINAL REPORT
+# ============================================================================ #
+
+$RemediationResults.EndTime = Get-Date
+$duration = $RemediationResults.EndTime - $RemediationResults.StartTime
+
+Write-Log "============================================" -Level INFO
+Write-Log "REMEDIATION COMPLETE" -Level SUCCESS
+Write-Log "Duration: $($duration.TotalSeconds) seconds" -Level INFO
+Write-Log "Log File: $logFile" -Level INFO
+Write-Log "============================================" -Level INFO
+Write-Log "" -Level INFO
+Write-Log "FINAL SUMMARY" -Level INFO
+Write-Log "Processes: Checked=$($RemediationResults.Summary.ProcessesChecked) Killed=$($RemediationResults.Summary.ProcessesKilled) Failed=$($RemediationResults.Summary.ProcessesFailed)" -Level INFO
+Write-Log "Services: Checked=$($RemediationResults.Summary.ServicesChecked) Removed=$($RemediationResults.Summary.ServicesRemoved) Failed=$($RemediationResults.Summary.ServicesFailed)" -Level INFO
+Write-Log "Tasks: Checked=$($RemediationResults.Summary.TasksChecked) Removed=$($RemediationResults.Summary.TasksRemoved) Failed=$($RemediationResults.Summary.TasksFailed)" -Level INFO
+Write-Log "Registry: Keys Checked=$($RemediationResults.Summary.RegistryKeysChecked) Removed=$($RemediationResults.Summary.RegistryValuesRemoved) Failed=$($RemediationResults.Summary.RegistryValuesFailed)" -Level INFO
+Write-Log "Files: Checked=$($RemediationResults.Summary.PathsChecked) Removed=$($RemediationResults.Summary.PathsRemoved) Failed=$($RemediationResults.Summary.PathsFailed)" -Level INFO
+Write-Log "Critical Errors: $($RemediationResults.CriticalErrors.Count)" -Level ERROR
+Write-Log "============================================" -Level INFO
+
+# Display log file location and contents
+Write-Output ""
+Write-Output "=========================================="
+Write-Output "Remediation Complete!"
+Write-Output "Log File: $logFile"
+Write-Output "=========================================="
+Write-Output ""
+
+# Display full log contents
+Get-Content $logFile
