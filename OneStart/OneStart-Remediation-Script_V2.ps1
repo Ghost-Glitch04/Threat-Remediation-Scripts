@@ -52,7 +52,7 @@ $MalwareConfig = @{
     RunKeyPatterns = @(
         "OneStart*",           # Catches: OneStart, OneStartUpdate, OneStartBar, etc.
         "OneStartChromium*",    # Specific entry (not caught by wildcard due to suffix)
-        "OneStartUpdaterTaskUser*",  # <-- ADD: Has its own wildcard pattern
+        "OneStartUpdaterTaskUser*", # Has its own wildcard pattern
         "PDFEditor*"
     )
     
@@ -100,7 +100,7 @@ $MalwareConfig = @{
         "Software\Clients\StartMenuInternet\OneStart*",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\*OneStart*",
         "Software\Classes\OneStart*",
-        "Software\Classes\OSBHTML*"
+        "Software\Classes\OSBHTML*",
         # COM Object Registrations (CLSID entries)
         "Software\Classes\CLSID\{4DAC24AB-B340-4B7E-AD01-1504A7F59EEA}", 
         "Software\Classes\CLSID\{75828ED1-7BE8-45D0-8950-AA85CBF74510}",
@@ -112,6 +112,13 @@ $MalwareConfig = @{
     # Browser hijacking entries (specific patterns)
     BrowserStartMenuPatterns = @(
         "OneStart*"
+    )
+
+    # File association tracking patterns (ApplicationAssociationToasts)
+    ApplicationAssociationPatterns = @(
+        "OneStart*",
+        "OSBHTML*",
+        "PDFEditor*"
     )
 }
 
@@ -1593,6 +1600,107 @@ function Remove-MalwareBrowserEntries {
 }
 
 # ============================================================================ #
+# FILE ASSOCIATION CLEANUP
+# ============================================================================ #
+
+function Remove-MalwareFileAssociations {
+    <#
+    .SYNOPSIS
+    Removes orphaned file association tracking entries
+    .DESCRIPTION
+    Cleans ApplicationAssociationToasts registry values that track
+    whether Windows has prompted the user about file associations.
+    Prevents broken "Open with" references to deleted malware.
+    #>
+    
+    param(
+        [Parameter(Mandatory=$true)]
+        [array]$AssociationPatterns
+    )
+    
+    Write-Log "========================================" -Level INFO
+    Write-Log "FILE ASSOCIATION CLEANUP MODULE" -Level INFO
+    Write-Log "========================================" -Level INFO
+    Write-Log "Removes orphaned ApplicationAssociationToasts entries" -Level INFO
+    
+    $totalRemoved = 0
+    $totalFound = 0
+    
+    $userSIDs = Get-UserSIDs
+    Write-Log "  Found $($userSIDs.Count) user profile(s)" -Level INFO
+    
+    foreach ($sid in $userSIDs) {
+        Write-Log "  Processing SID: $sid" -Level INFO
+        
+        $assocPath = "Registry::HKU\$sid\Software\Microsoft\Windows\CurrentVersion\ApplicationAssociationToasts"
+        
+        if (-not (Test-Path $assocPath)) {
+            Write-Log "    [NOT FOUND] ApplicationAssociationToasts key does not exist" -Level INFO
+            continue
+        }
+        
+        $RemediationResults.Summary.RegistryKeysChecked++
+        
+        try {
+            $properties = Get-ItemProperty -Path $assocPath -ErrorAction Stop
+            
+            foreach ($pattern in $AssociationPatterns) {
+                $matchingValues = $properties.PSObject.Properties | 
+                    Where-Object { $_.Name -like $pattern -and $_.Name -notlike "PS*" }
+                
+                foreach ($value in $matchingValues) {
+                    $valueName = $value.Name
+                    $valueData = $value.Value
+                    $totalFound++
+                    
+                    Write-Log "    [FOUND] Association: $valueName = $valueData" -Level WARNING
+                    
+                    try {
+                        Remove-ItemProperty -Path $assocPath -Name $valueName -ErrorAction Stop
+                        
+                        $checkValue = Get-ItemProperty -Path $assocPath -Name $valueName -ErrorAction SilentlyContinue
+                        if (-not $checkValue) {
+                            Write-Log "    [SUCCESS] Removed: $valueName" -Level SUCCESS
+                            
+                            $record = New-RegistryRecord -KeyPath $assocPath -ValueName $valueName `
+                                -Status "REMOVED" -ValueData $valueData
+                            $RemediationResults.Registry.Removed += $record
+                            $RemediationResults.Summary.RegistryValuesRemoved++
+                            $totalRemoved++
+                        } else {
+                            Write-Log "    [FAILED] Still exists: $valueName" -Level ERROR
+                            
+                            $record = New-RegistryRecord -KeyPath $assocPath -ValueName $valueName `
+                                -Status "FAILED" -ValueData $valueData -ErrorMessage "Value still exists"
+                            $RemediationResults.Registry.Failed += $record
+                            $RemediationResults.Summary.RegistryValuesFailed++
+                        }
+                    } catch {
+                        $errorMsg = $_.Exception.Message
+                        Write-Log "    [ERROR] Failed to remove $valueName : $errorMsg" -Level ERROR
+                        
+                        $record = New-RegistryRecord -KeyPath $assocPath -ValueName $valueName `
+                            -Status "ERROR" -ValueData $valueData -ErrorMessage $errorMsg
+                        $RemediationResults.Registry.Errored += $record
+                        $RemediationResults.Summary.RegistryValuesErrored++
+                    }
+                }
+            }
+        } catch {
+            Write-Log "    [ERROR] Cannot access ApplicationAssociationToasts: $($_.Exception.Message)" -Level ERROR
+        }
+    }
+    
+    Write-Log "========================================" -Level INFO
+    Write-Log "FILE ASSOCIATION CLEANUP SUMMARY" -Level INFO
+    Write-Log "  Keys Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
+    Write-Log "  Associations Found: $totalFound" -Level INFO
+    Write-Log "  Associations Removed: $totalRemoved" -Level SUCCESS
+    Write-Log "  Note: Clears orphaned file association prompts" -Level INFO
+    Write-Log "========================================" -Level INFO
+}
+
+# ============================================================================ #
 # EXECUTION
 # ============================================================================ #
 
@@ -1602,37 +1710,43 @@ Write-Log "Target: $($MalwareConfig.Name)" -Level INFO
 Write-Log "Started: $($RemediationResults.StartTime)" -Level INFO
 Write-Log "============================================" -Level INFO
 
-# Execute process termination
+# 1. PROCESSES - Stop active threats immediately
 Stop-MalwareProcess -ProcessNames $MalwareConfig.Processes
 Start-Sleep -Seconds 2
 
-# Execute service remediation
+# 2. SERVICES - Prevent automatic restart of processes
 Stop-MalwareService -ServiceNames $MalwareConfig.Services
 Start-Sleep -Seconds 2
 
-# Execute scheduled task removal
+# 3. SCHEDULED TASKS - Remove persistence (can restart services/processes)
 Remove-MalwareTask -TaskPatterns $MalwareConfig.TaskPatterns
 Start-Sleep -Seconds 2
 
-# Execute registry persistence removal
+# 4. REGISTRY - RUN KEYS - Remove autostart entries (another persistence layer)
 Remove-MalwareRegistryPersistence -RunKeyPatterns $MalwareConfig.RunKeyPatterns `
     -RegisteredAppPatterns $MalwareConfig.RegisteredAppPatterns
 Start-Sleep -Seconds 2
 
-# Execute file and folder cleanup
+# 5. FILES & FOLDERS - Safe to remove now (nothing using them)
 Remove-MalwareFiles -UserPaths $MalwareConfig.UserPaths `
     -DownloadPatterns $MalwareConfig.DownloadPatterns `
     -SystemPaths $MalwareConfig.SystemPaths
 Start-Sleep -Seconds 2
 
-# Execute registry cleanup (artifacts)
+# 6. REGISTRY - CLEANUP - Remove remaining configuration/artifacts
 Remove-MalwareRegistryKeys -HKLMPaths $MalwareConfig.RegistryHKLM `
     -HKUPatterns $MalwareConfig.RegistryHKUPatterns
 Start-Sleep -Seconds 2
 
-# Execute browser entry cleanup (LAST - most visible to users)
+# 7. BROWSER ENTRIES - Clean up browser hijacking (ProgID, StartMenuInternet)
 Remove-MalwareBrowserEntries -BrowserPatterns $MalwareConfig.BrowserStartMenuPatterns
 Start-Sleep -Seconds 2
+
+# 8. FILE ASSOCIATIONS - Remove orphaned ApplicationAssociationToasts
+if ($MalwareConfig.ApplicationAssociationPatterns) {
+    Remove-MalwareFileAssociations -AssociationPatterns $MalwareConfig.ApplicationAssociationPatterns
+    Start-Sleep -Seconds 2
+}
 
 # ============================================================================ #
 # FINAL REPORT
@@ -1655,6 +1769,14 @@ Write-Log "Registry: Keys Checked=$($RemediationResults.Summary.RegistryKeysChec
 Write-Log "Files: Checked=$($RemediationResults.Summary.PathsChecked) Removed=$($RemediationResults.Summary.PathsRemoved) Failed=$($RemediationResults.Summary.PathsFailed)" -Level INFO
 Write-Log "Critical Errors: $($RemediationResults.CriticalErrors.Count)" -Level ERROR
 Write-Log "============================================" -Level INFO
+
+# Add detailed breakdown if critical errors exist
+if ($RemediationResults.CriticalErrors.Count -gt 0) {
+    Write-Log "CRITICAL ERROR DETAILS:" -Level ERROR
+    foreach ($cError in $RemediationResults.CriticalErrors) {
+        Write-Log "  - $cError" -Level ERROR
+    }
+}
 
 # Display log file location and contents
 Write-Output ""
