@@ -1,66 +1,11 @@
-# ============================================================ #
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% #
-# <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><> #
-# << --- OneStart Remediation Script --- >> #
-# <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><> #
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% #
-# ============================================================ #
-
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% #
-# <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><> #
-# --- Kill Processes --- #
-# <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><> #
-# %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% #
-
-# &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-# -- Define Variables --
-# &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-
-# Define an array of strings to be used when searching through likely locations of Indicators of Compromise.
-[array]$stringArray =@(
-    "OneStartService",
-    "OneStartAutoLaunch",
-    "OneStartCrashHandler",
-    "OneStartUpdater",
-    "OneStartBrowser",
-    "PDFEditor",
-    "PDFEditorService",
-    "PDFEditorUpdater"
-)
-
-
-
-# Define target processes to terminate
-$processesToKill = @(
-    "OneStartService",
-    "OneStartAutoLaunch",
-    "OneStartCrashHandler",
-    "OneStartUpdater",
-    "OneStartBrowser",
-    "PDFEditor",
-    "PDFEditorService",
-    "PDFEditorUpdater"
-)
-
-# &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-# -- Kill Target Processes --
-# &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-
-# Attempt to kill each target process and verify termination
-foreach ($processName in $processesToKill) {
-    $process = Get-Process -Name $processName -ErrorAction SilentlyContinue
-    if ($process) {
-        $process | Stop-Process -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 500
-        
-        # Verify the process was successfully terminated
-        $stillRunning = Get-Process -Name $processName -ErrorAction SilentlyContinue
-        if ($stillRunning) {
-            Write-Host "Failed to kill process -> $processName"
-        }
-    }
+$process = Get-Process OneStart -ErrorAction SilentlyContinue
+if ($process) {
+    $process | Stop-Process -Force -ErrorAction SilentlyContinue
 }
-
+$process = Get-Process UpdaterSetup -ErrorAction SilentlyContinue
+if ($process) {
+    $process | Stop-Process -Force -ErrorAction SilentlyContinue
+}
 Start-Sleep -Seconds 2
 
 $user_list = Get-Item C:\users\* | Select-Object Name -ExpandProperty Name
@@ -124,6 +69,7 @@ $tasks = @(
     "C:\Windows\System32\Tasks\PDFEditorScheduledTask",
     "C:\Windows\System32\Tasks\PDFEditorUScheduledTask",
     "C:\Windows\System32\Tasks\sys_component_health_*"
+
 )
 foreach ($task in $tasks) {
     if (Test-Path -Path $task) {
@@ -134,60 +80,20 @@ foreach ($task in $tasks) {
     }
 }
 
-# Optional: Clean up orphaned TaskCache registry entries with proper permission handling
-function Remove-TaskCacheEntry {
-    param([string]$TaskName)
-    
-    try {
-        $baseKeyPath = "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache"
-        $treePath = "$baseKeyPath\TREE\$TaskName"
-        
-        # Open the registry key with HKLM
-        $regKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("$baseKeyPath\TREE\$TaskName", $false)
-        
-        if ($regKey) {
-            # Get the GUID for related entries
-            $taskId = $null
-            try {
-                $taskId = $regKey.GetValue("Id")
-            } catch {}
-            $regKey.Close()
-            
-            # Remove associated GUID entries first if found
-            if ($taskId) {
-                $guidString = "{$taskId}"
-                $relatedSubKeys = @(
-                    "$baseKeyPath\Tasks\$guidString",
-                    "$baseKeyPath\Plain\$guidString",
-                    "$baseKeyPath\Boot\$guidString",
-                    "$baseKeyPath\Logon\$guidString"
-                )
-                foreach ($subKey in $relatedSubKeys) {
-                    try {
-                        [Microsoft.Win32.Registry]::LocalMachine.DeleteSubKeyTree($subKey, $false)
-                    } catch {}
-                }
-            }
-            
-            # Now delete the TREE entry
-            try {
-                [Microsoft.Win32.Registry]::LocalMachine.DeleteSubKeyTree($treePath, $false)
-            } catch {
-                Write-Host "Warning: Failed to remove orphaned registry key -> $TaskName (Access Denied - requires SYSTEM privileges)"
-            }
+$taskCacheKeys = @(
+    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\OneStartAutoLaunchTask*",
+    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\OneStartUser",
+    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\PDFEditorScheduledTask",
+    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\PDFEditorUScheduledTask",
+    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\sys_component_health_*",
+    "Registry::HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{88E532D6-7FD4-4229-B0E8-5E196DBF78B2}"
+)
+foreach ($taskCacheKey in $taskCacheKeys) {
+    if (Test-Path -Path $taskCacheKey) {
+        Remove-Item $taskCacheKey -Recurse -ErrorAction SilentlyContinue
+        if (Test-Path -Path $taskCacheKey) {
+            Write-Host "Failed to remove OneStart -> $taskCacheKey"
         }
-    } catch {
-        # Silently continue if key doesn't exist or can't be accessed
-    }
-}
-
-$taskCacheBasePath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache"
-$taskNamePatterns = @("OneStart*", "PDFEditor*", "sys_component_health_*")
-
-foreach ($pattern in $taskNamePatterns) {
-    $matchingKeys = Get-ChildItem -Path "$taskCacheBasePath\TREE" -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like $pattern }
-    foreach ($key in $matchingKeys) {
-        Remove-TaskCacheEntry -TaskName $key.PSChildName
     }
 }
 
@@ -208,105 +114,45 @@ foreach ($key in $registryKeys) {
 $sid_list = Get-Item -Path "Registry::HKU\S-*" | Select-String -Pattern "S-\d-(?:\d+-){5,14}\d+" | ForEach-Object { $_.ToString().Trim() }
 foreach ($sid in $sid_list) {
     if ($sid -notlike "*_Classes*") {
-        # Dynamically remove OneStart browser registrations in StartMenuInternet
-        $startMenuPath = "Registry::$sid\Software\Clients\StartMenuInternet"
-        if (Test-Path $startMenuPath) {
-            Get-ChildItem $startMenuPath -ErrorAction SilentlyContinue | 
-                Where-Object { $_.PSChildName -like "OneStart.*" } |
-                ForEach-Object {
-                    Remove-Item $_.PSPath -Recurse -ErrorAction SilentlyContinue
-                    if (Test-Path $_.PSPath) {
-                        Write-Host "Failed to remove OneStart -> $($_.PSPath)"
-                    }
-                }
-        }
-
-        # Remove static base paths
-        $staticPaths = @(
+        $registryPaths = @(
+            "Registry::$sid\Software\Clients\StartMenuInternet\OneStart.IOZDYLUF4W5Y3MM3N77XMXEX6A",
             "Registry::$sid\Software\OneStart.ai",
-            "Registry::$sid\Software\PDFEditor"
+            "Registry::$sid\Software\Microsoft\Windows\CurrentVersion\Uninstall\OneStart.ai OneStart",
+            "Registry::$sid\Software\PDFEditor",
+            "Registry::$sid\Software\Clients\StartMenuInternet\OneStart.25VKDQVMIQGWARCLC23VYGDER4",
+            "Registry::$sid\Software\Classes\CLSID\{4DAC24AB-B340-4B7E-AD01-1504A7F59EEA}\LocalServer32",
+            "Registry::$sid\Software\Classes\CLSID\{75828ED1-7BE8-45D0-8950-AA85CBF74510}\LocalServer32",
+            "Registry::$sid\Software\Classes\CLSID\{A2C6CB58-C076-425C-ACB7-6D19D64428CD}\LocalServer32",
+            "Registry::$sid\Software\Classes\CLSID\{A45DDD96-C17C-50A3-BD69-8D064F864B24}\LocalServer32",
+            "Registry::$sid\Software\Classes\CLSID\{B5B6376D-5E59-5CB2-A34D-617C21A3A240}\LocalServer32",
+            "Registry::$sid\Software\Classes\OneStart.aiUpdate.Update3WebUser",
+            "Registry::$sid\Software\Software\Classes\OSBHTML.25VKDQVMIQGWARCLC23VYGDER4"
         )
-        foreach ($path in $staticPaths) {
-            if (Test-Path $path) {
-                Remove-Item $path -Recurse -ErrorAction SilentlyContinue
-                if (Test-Path $path) {
-                    Write-Host "Failed to remove OneStart -> $path"
+        foreach ($regPath in $registryPaths) {
+            if (Test-Path -Path $regPath) {
+                Remove-Item $regPath -Recurse -ErrorAction SilentlyContinue
+                if (Test-Path -Path $regPath) {
+                    Write-Host "Failed to remove OneStart -> $regPath"
                 }
             }
         }
-
-        # Dynamically remove OneStart uninstall entries
-        $uninstallPath = "Registry::$sid\Software\Microsoft\Windows\CurrentVersion\Uninstall"
-        if (Test-Path $uninstallPath) {
-            Get-ChildItem $uninstallPath -ErrorAction SilentlyContinue |
-                Where-Object { $_.PSChildName -like "*OneStart*" } |
-                ForEach-Object {
-                    Remove-Item $_.PSPath -Recurse -ErrorAction SilentlyContinue
-                    if (Test-Path $_.PSPath) {
-                        Write-Host "Failed to remove OneStart -> $($_.PSPath)"
-                    }
-                }
-        }
-
-        # Dynamically find and remove CLSIDs associated with OneStart/PDFEditor
-        $clsidPath = "Registry::$sid\Software\Classes\CLSID"
-        if (Test-Path $clsidPath) {
-            $clsids = Get-ChildItem $clsidPath -ErrorAction SilentlyContinue
-            foreach ($clsid in $clsids) {
-                $localServerPath = "$($clsid.PSPath)\LocalServer32"
-                if (Test-Path $localServerPath) {
-                    $localServer = Get-ItemProperty -Path $localServerPath -Name "(default)" -ErrorAction SilentlyContinue
-                    if ($localServer.'(default)' -like "*OneStart*" -or $localServer.'(default)' -like "*PDFEditor*") {
-                        Remove-Item $clsid.PSPath -Recurse -ErrorAction SilentlyContinue
-                        if (Test-Path $clsid.PSPath) {
-                            Write-Host "Failed to remove OneStart CLSID -> $($clsid.PSPath)"
-                        }
-                    }
+        $runKeys = @("OneStartUpdate", "OneStartBarUpdate","OneStartBar","OneStart", "OneStartChromium","OneStartUpdaterTaskUser*","PDFEditor*")
+        foreach ($runKey in $runKeys) {
+            $keypath = "Registry::$sid\Software\Microsoft\Windows\CurrentVersion\Run"
+            if ((Get-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue)) {
+                Remove-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue
+                if ((Get-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue)) {
+                    Write-Host "Failed to remove OneStart -> $keypath.$runKey"
                 }
             }
         }
-
-        # Dynamically remove OneStart-related Classes entries
-        $classesPath = "Registry::$sid\Software\Classes"
-        if (Test-Path $classesPath) {
-            Get-ChildItem $classesPath -ErrorAction SilentlyContinue |
-                Where-Object { $_.PSChildName -like "OneStart*" -or $_.PSChildName -like "OSBHTML.*" } |
-                ForEach-Object {
-                    Remove-Item $_.PSPath -Recurse -ErrorAction SilentlyContinue
-                    if (Test-Path $_.PSPath) {
-                        Write-Host "Failed to remove OneStart -> $($_.PSPath)"
-                    }
-                }
-        }
-
-        # Clean up Run keys with pattern matching
-        $runKeyPath = "Registry::$sid\Software\Microsoft\Windows\CurrentVersion\Run"
-        if (Test-Path $runKeyPath) {
-            $runKeyPatterns = @("OneStart*", "PDFEditor*")
-            $runProps = Get-ItemProperty -Path $runKeyPath -ErrorAction SilentlyContinue
-            if ($runProps) {
-                $runProps.PSObject.Properties | Where-Object { 
-                    $propName = $_.Name
-                    $runKeyPatterns | Where-Object { $propName -like $_ }
-                } | ForEach-Object {
-                    Remove-ItemProperty -Path $runKeyPath -Name $_.Name -ErrorAction SilentlyContinue
-                    if ((Get-ItemProperty -Path $runKeyPath -Name $_.Name -ErrorAction SilentlyContinue)) {
-                        Write-Host "Failed to remove OneStart -> $runKeyPath.$($_.Name)"
-                    }
-                }
-            }
-        }
-
-        # Clean up RegisteredApplications with pattern matching
-        $regAppsPath = "Registry::$sid\Software\RegisteredApplications"
-        if (Test-Path $regAppsPath) {
-            $regAppsProps = Get-ItemProperty -Path $regAppsPath -ErrorAction SilentlyContinue
-            if ($regAppsProps) {
-                $regAppsProps.PSObject.Properties | Where-Object { $_.Name -like "OneStart*" } | ForEach-Object {
-                    Remove-ItemProperty -Path $regAppsPath -Name $_.Name -ErrorAction SilentlyContinue
-                    if ((Get-ItemProperty -Path $regAppsPath -Name $_.Name -ErrorAction SilentlyContinue)) {
-                        Write-Host "Failed to remove OneStart -> $regAppsPath.$($_.Name)"
-                    }
+        $runKeys = @("OneStart*")
+        foreach ($runKey in $runKeys) {
+            $keypath = "Registry::$sid\Software\RegisteredApplications"
+            if ((Get-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue)) {
+                Remove-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue
+                if ((Get-ItemProperty -Path $keypath -Name $runKey -ErrorAction SilentlyContinue)) {
+                    Write-Host "Failed to remove OneStart -> $keypath.$runKey"
                 }
             }
         }
