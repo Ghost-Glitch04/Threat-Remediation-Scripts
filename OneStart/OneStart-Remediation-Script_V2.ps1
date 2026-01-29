@@ -29,7 +29,8 @@ $MalwareConfig = @{
         "OneStartBrowser",
         "PDFEditor",
         "PDFEditorService",
-        "PDFEditorUpdater"
+        "PDFEditorUpdater",
+        "UpdaterSetup"
     )
     
     # Service names to stop and remove
@@ -49,7 +50,9 @@ $MalwareConfig = @{
     
     # Registry value patterns to remove from Run keys
     RunKeyPatterns = @(
-        "OneStart*",
+        "OneStart*",           # Catches: OneStart, OneStartUpdate, OneStartBar, etc.
+        "OneStartChromium*",    # Specific entry (not caught by wildcard due to suffix)
+        "OneStartUpdaterTaskUser*",  # <-- ADD: Has its own wildcard pattern
         "PDFEditor*"
     )
     
@@ -98,6 +101,12 @@ $MalwareConfig = @{
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\*OneStart*",
         "Software\Classes\OneStart*",
         "Software\Classes\OSBHTML*"
+        # COM Object Registrations (CLSID entries)
+        "Software\Classes\CLSID\{4DAC24AB-B340-4B7E-AD01-1504A7F59EEA}", 
+        "Software\Classes\CLSID\{75828ED1-7BE8-45D0-8950-AA85CBF74510}",
+        "Software\Classes\CLSID\{A2C6CB58-C076-425C-ACB7-6D19D64428CD}",
+        "Software\Classes\CLSID\{A45DDD96-C17C-50A3-BD69-8D064F864B24}",
+        "Software\Classes\CLSID\{B5B6376D-5E59-5CB2-A34D-617C21A3A240}"
     )
     
     # Browser hijacking entries (specific patterns)
