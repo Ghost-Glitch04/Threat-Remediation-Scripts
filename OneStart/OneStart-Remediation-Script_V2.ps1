@@ -27,7 +27,10 @@ $MalwareConfig = @{
         "OneStartCrashHandler",
         "OneStartUpdater",
         "OneStartBrowser",
+        "OneStartNotification",
+        "OneStartTray",
         "PDFEditor",
+        "PDFEditorTray",
         "PDFEditorService",
         "PDFEditorUpdater",
         "UpdaterSetup"
@@ -69,6 +72,8 @@ $MalwareConfig = @{
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\OneStart.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneStart.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PDF Editor.lnk",
+        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\OneStart*.lnk",
+        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\PDFEditor*.lnk",
         "C:\Users\{USER}\AppData\Roaming\NodeJs",
         "C:\Users\{USER}\AppData\Roaming\PDF Editor",
         "C:\Users\{USER}\AppData\Roaming\AP-2E99C4AA-3F56-48BB-A947-2EDA163E765F"
@@ -118,6 +123,12 @@ $MalwareConfig = @{
     ApplicationAssociationPatterns = @(
         "OneStart*",
         "OSBHTML*",
+        "PDFEditor*"
+    )
+
+    # Feature usage tracking patterns (AppBadgeUpdated, AppLaunch, etc.)
+    FeatureUsagePatterns = @(
+        "OneStart*",
         "PDFEditor*"
     )
 }
@@ -762,7 +773,7 @@ function Stop-MalwareService {
         Write-Log "  [REMOVING] Attempting to delete service..." -Level INFO
         
         try {
-            $scResult = & sc.exe delete $serviceName 2>&1
+            $null = & sc.exe delete $serviceName 2>&1
             Start-Sleep -Milliseconds 500
             
             $serviceCheck = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
@@ -1074,13 +1085,10 @@ function Remove-TaskCacheOrphans {
     }
 
     # TaskCache cleanup summary
-# TaskCache cleanup summary
-Write-Log "========================================" -Level INFO
-Write-Log "TASKCACHE REMEDIATION SUMMARY" -Level INFO
-Write-Log "  [TASKCACHE] Cleanup complete: Checked=$($RemediationResults.Summary.TaskCacheChecked)" -Level INFO
-Write-Log "  Removed=$($RemediationResults.Summary.TaskCacheRemoved)" -Level SUCCESS
-Write-Log "  Failed=$($RemediationResults.Summary.TaskCacheFailed)" -Level ERROR
-Write-Log "========================================" -Level INFO
+    Write-Log "  [TASKCACHE] Cleanup complete:" -Level INFO
+    Write-Log "    Checked: $($RemediationResults.Summary.TaskCacheChecked)" -Level INFO
+    Write-Log "    Removed: $($RemediationResults.Summary.TaskCacheRemoved)" -Level SUCCESS
+    Write-Log "    Failed: $($RemediationResults.Summary.TaskCacheFailed)" -Level ERROR
 }
 
 # ============================================================================ #
@@ -1165,7 +1173,10 @@ function Remove-MalwareRegistryPersistence {
         [array]$RunKeyPatterns,
         
         [Parameter(Mandatory=$true)]
-        [array]$RegisteredAppPatterns
+        [array]$RegisteredAppPatterns,
+
+        [Parameter(Mandatory=$false)]
+        [array]$FeatureUsagePatterns = @()
     )
     
     Write-Log "========================================" -Level INFO
@@ -1224,6 +1235,26 @@ function Remove-MalwareRegistryPersistence {
         $removed = Remove-RegistryValueByPattern -KeyPath $hkuRegApps -ValuePatterns $RegisteredAppPatterns
         $totalRemoved += $removed
     }
+    Write-Log "Phase 4: Feature Usage Tracking" -Level INFO
+
+    if ($FeatureUsagePatterns.Count -gt 0) {
+        Write-Log "Phase 4: Checking Explorer Feature Usage..." -Level INFO
+        
+        $userSIDs = Get-UserSIDs
+        foreach ($sid in $userSIDs) {
+            $featureUsagePaths = @(
+                "Registry::HKU\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppBadgeUpdated",
+                "Registry::HKU\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppLaunch"
+            )
+            
+            foreach ($keyPath in $featureUsagePaths) {
+                if (Test-Path $keyPath) {
+                    $removed = Remove-RegistryValueByPattern -KeyPath $keyPath -ValuePatterns $FeatureUsagePatterns
+                    $totalRemoved += $removed
+                }
+            }
+        }
+    }
     
     Write-Log "========================================" -Level INFO
     Write-Log "REGISTRY PERSISTENCE REMOVAL SUMMARY" -Level INFO
@@ -1234,6 +1265,7 @@ function Remove-MalwareRegistryPersistence {
     Write-Log "  Values Errored: $($RemediationResults.Summary.RegistryValuesErrored)" -Level ERROR
     Write-Log "========================================" -Level INFO
 }
+
 
 # ============================================================================ #
 # FILE & FOLDER CLEANUP
@@ -1731,51 +1763,56 @@ function Remove-MalwareBrowserEntries {
         }
     }
     
-    Write-Log "Phase 4: Checking UserChoice associations..." -Level INFO
-    
-    foreach ($sid in $userSIDs) {
-        $userChoicePath = "Registry::HKU\$sid\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts"
+    if ($FeatureUsagePatterns.Count -gt 0) {
+
+        Write-Log "Phase 4: Checking UserChoice associations..." -Level INFO
         
-        if (Test-Path $userChoicePath) {
-            $fileExts = Get-ChildItem $userChoicePath -ErrorAction SilentlyContinue
+        foreach ($sid in $userSIDs) {
+            $userChoicePath = "Registry::HKU\$sid\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts"
             
-            foreach ($ext in $fileExts) {
-                $userChoiceKey = Join-Path $ext.PSPath "UserChoice"
+            if (Test-Path $userChoicePath) {
+                $fileExts = Get-ChildItem $userChoicePath -ErrorAction SilentlyContinue
                 
-                if (Test-Path $userChoiceKey) {
-                    try {
-                        $progId = (Get-ItemProperty $userChoiceKey -Name ProgId -ErrorAction SilentlyContinue).ProgId
-                        
-                        if ($progId) {
-                            foreach ($pattern in $BrowserPatterns) {
-                                if ($progId -like $pattern) {
-                                    Write-Log "    [FOUND] UserChoice for $($ext.PSChildName) : $progId" -Level WARNING
-                                    $RemediationResults.Summary.RegistryKeysChecked++
-                                    
-                                    Write-Log "    [INFO] UserChoice key is hash-protected by Windows" -Level INFO
-                                    Write-Log "    [INFO] Will be reset when user changes default program" -Level INFO
-                                    
-                                    $record = New-BrowserRecord -EntryPath $userChoiceKey `
-                                        -EntryType "UserChoice (Protected)" -Status "NOTED"
-                                    $RemediationResults.Registry.NotFound += $record
-                                }
-                            }
+                foreach ($ext in $fileExts) {
+                    $userChoiceKey = Join-Path $ext.PSPath "UserChoice"
+                    
+                    if (Test-Path $userChoiceKey) {
+                        try {
+                            $progId = (Get-ItemProperty $userChoiceKey -Name ProgId -ErrorAction SilentlyContinue).ProgId
+                            
+                            if ($progId) {
+                                foreach ($pattern in $BrowserPatterns) {
+                                    if ($progId -like $pattern) {
+                                        Write-Log "    [FOUND] UserChoice for $($ext.PSChildName) : $progId" -Level WARNING
+                                        $RemediationResults.Summary.RegistryKeysChecked++
+                                        
+                                        Write-Log "    [INFO] UserChoice key is hash-protected by Windows" -Level INFO
+                                        Write-Log "    [INFO] Will be reset when user changes default program" -Level INFO
+                                        
+                                        $record = New-BrowserRecord -EntryPath $userChoiceKey `
+                                            -EntryType "UserChoice (Protected)" -Status "NOTED"
+                                        $RemediationResults.Registry.NotFound += $record
+                                    }
+                                } # End foreach pattern
+                            } # End if progId
+                        } catch {
+                            # Silent fail - UserChoice keys are often protected
                         }
-                    } catch {
-                        # Silent fail - UserChoice keys are often protected
-                    }
-                }
-            }
-        }
-    }
-    
-    Write-Log "========================================" -Level INFO
-    Write-Log "BROWSER ENTRY CLEANUP SUMMARY" -Level INFO
-    Write-Log "  Entries Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
-    Write-Log "  Entries Removed: $totalRemoved" -Level SUCCESS
-    Write-Log "  Note: UserChoice keys are Windows-protected and will reset naturally" -Level INFO
-    Write-Log "========================================" -Level INFO
-}
+                    } # End if Test-Path UserChoice
+                } # End foreach fileExts
+            } # End if Test-Path FileExts
+        } # End foreach SID
+        
+        Write-Log "========================================" -Level INFO
+        Write-Log "BROWSER ENTRY CLEANUP SUMMARY" -Level INFO
+        Write-Log "  Entries Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
+        Write-Log "  Entries Removed: $totalRemoved" -Level SUCCESS
+        Write-Log "  Note: UserChoice keys are Windows-protected and will reset naturally" -Level INFO
+        Write-Log "========================================" -Level INFO
+    } # End $FeatureUsagePatterns.Count
+
+} # End Remove-MalwareBrowserEntries
+
 
 # ============================================================================ #
 # FILE ASSOCIATION CLEANUP
@@ -1902,7 +1939,8 @@ Start-Sleep -Seconds 2
 
 # 4. REGISTRY - RUN KEYS - Remove autostart entries (another persistence layer)
 Remove-MalwareRegistryPersistence -RunKeyPatterns $MalwareConfig.RunKeyPatterns `
-    -RegisteredAppPatterns $MalwareConfig.RegisteredAppPatterns
+    -RegisteredAppPatterns $MalwareConfig.RegisteredAppPatterns `
+    -FeatureUsagePatterns $MalwareConfig.FeatureUsagePatterns
 Start-Sleep -Seconds 2
 
 # 5. FILES & FOLDERS - Safe to remove now (nothing using them)
