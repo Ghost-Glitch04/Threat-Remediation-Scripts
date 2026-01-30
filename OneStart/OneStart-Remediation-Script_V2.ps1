@@ -43,6 +43,35 @@ $MalwareConfig = @{
         "PDFEditorService"
     )
     
+    # Certificate Configuration
+    Certificates = @{
+        # Suspicious keywords to flag in Subject/Issuer fields
+        SuspiciousKeywords = @(
+            "OneStart",
+            "OneStart.AI",
+            "One Start",
+            "Electron",
+            "DO_NOT_TRUST",
+            "Test",
+            "Development",
+            "Debug"
+        )
+        
+        # Certificate stores to scan (ordered by risk level)
+        Stores = @(
+            @{Location = "LocalMachine"; Store = "Root"; Risk = "CRITICAL"},
+            @{Location = "LocalMachine"; Store = "TrustedPublisher"; Risk = "HIGH"},
+            @{Location = "LocalMachine"; Store = "CA"; Risk = "MEDIUM"},
+            @{Location = "CurrentUser"; Store = "Root"; Risk = "CRITICAL"},
+            @{Location = "CurrentUser"; Store = "TrustedPublisher"; Risk = "HIGH"},
+            @{Location = "CurrentUser"; Store = "CA"; Risk = "MEDIUM"}
+        )
+        
+        # Analysis thresholds
+        RecentlyInstalledDays = 90    # Flag certs installed in last 90 days
+        SuspiciousValidityYears = 20  # Flag certs valid for over 20 years
+    }
+    
     # Scheduled task patterns
     TaskPatterns = @(
         "OneStartUser",
@@ -156,6 +185,15 @@ $RemediationResults = @{
         Errored = @()
     }
     
+    # Detailed certificate tracking
+    Certificates = @{
+        NotFound = @()
+        Removed = @()
+        Failed = @()
+        Errored = @()
+        Flagged = @()  # Suspicious but not removed
+    }
+
     # Detailed task tracking
     Tasks = @{
         NotFound = @()
@@ -205,6 +243,14 @@ $RemediationResults = @{
         ServicesFailed = 0
         ServicesErrored = 0
         ServicesNotFound = 0
+
+        # Certificate stats
+        CertStoresChecked = 0
+        CertificatesScanned = 0
+        CertificatesFlagged = 0
+        CertificatesRemoved = 0
+        CertificatesFailed = 0
+        CertificatesErrored = 0
         
         # Task stats
         TasksChecked = 0
@@ -237,6 +283,7 @@ $RemediationResults = @{
         PathsFailed = 0
         PathsErrored = 0
         PathsNotFound = 0
+
     }
     
     # Global error log
@@ -249,6 +296,10 @@ $RemediationResults = @{
 
 # ============================================================================ #
 # HELPER FUNCTIONS
+# ============================================================================ #
+
+# ============================================================================ #
+# HELPER FUNCTIONS - General
 # ============================================================================ #
 
 function Write-Log {
@@ -267,6 +318,10 @@ function Write-Log {
     
     Add-Content -Path $logFile -Value $logMessage -ErrorAction SilentlyContinue
 }
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Processes
+# ============================================================================ #
 
 function New-ProcessRecord {
     <#
@@ -303,6 +358,10 @@ function New-ProcessRecord {
     
     return $record
 }
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Services
+# ============================================================================ #
 
 function Get-ServiceDetails {
     <#
@@ -364,6 +423,93 @@ function New-ServiceRecord {
         ErrorMessage = $ErrorMessage
     }
 }
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Certificates
+# ============================================================================ #
+
+function Get-CertificateAge {
+    <#
+    .SYNOPSIS
+    Calculates certificate age in days
+    #>
+    param([DateTime]$NotBefore)
+    
+    $age = (Get-Date) - $NotBefore
+    return [Math]::Round($age.TotalDays, 0)
+}
+
+function Get-CertificateValidityPeriod {
+    <#
+    .SYNOPSIS
+    Calculates certificate validity period in years
+    #>
+    param(
+        [DateTime]$NotBefore,
+        [DateTime]$NotAfter
+    )
+    
+    $validity = $NotAfter - $NotBefore
+    return [Math]::Round($validity.TotalDays / 365.25, 1)
+}
+
+function Test-SuspiciousSubject {
+    <#
+    .SYNOPSIS
+    Checks if certificate subject contains suspicious keywords
+    #>
+    param(
+        [string]$Subject,
+        [array]$Keywords
+    )
+    
+    foreach ($keyword in $Keywords) {
+        if ($Subject -like "*$keyword*") {
+            return $true
+        }
+    }
+    return $false
+}
+
+function New-CertificateRecord {
+    <#
+    .SYNOPSIS
+    Creates a detailed certificate tracking record
+    #>
+    param(
+        [string]$StoreLocation,
+        [string]$StoreName,
+        [string]$Subject,
+        [string]$Thumbprint,
+        [string]$Status,
+        [hashtable]$Details = @{},
+        [string]$ErrorMessage = $null,
+        [array]$FlagReasons = @()
+    )
+    
+    return @{
+        StoreLocation = $StoreLocation
+        StoreName = $StoreName
+        Subject = $Subject
+        Thumbprint = $Thumbprint
+        Issuer = $Details.Issuer
+        SerialNumber = $Details.SerialNumber
+        NotBefore = $Details.NotBefore
+        NotAfter = $Details.NotAfter
+        AgeDays = $Details.AgeDays
+        ValidityYears = $Details.ValidityYears
+        IsSelfSigned = $Details.IsSelfSigned
+        RiskLevel = $Details.RiskLevel
+        FlagReasons = $FlagReasons
+        Status = $Status
+        Timestamp = Get-Date
+        ErrorMessage = $ErrorMessage
+    }
+}
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Scheduled Tasks
+# ============================================================================ #
 
 function Get-TaskDetails {
     <#
@@ -447,6 +593,10 @@ function New-TaskCacheRecord {
     }
 }
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Registry Keys/Values
+# ============================================================================ #
+
 function New-RegistryRecord {
     <#
     .SYNOPSIS
@@ -492,6 +642,41 @@ function New-RegistryKeyRecord {
         ErrorMessage = $ErrorMessage
     }
 }
+function Get-RegistryKeyDetails {
+    <#
+    .SYNOPSIS
+    Captures registry key metadata before removal
+    #>
+    param(
+        [string]$KeyPath
+    )
+    
+    try {
+        if (Test-Path $KeyPath) {
+            $key = Get-Item $KeyPath -ErrorAction Stop
+            $subkeys = Get-ChildItem $KeyPath -ErrorAction SilentlyContinue
+            $values = Get-ItemProperty $KeyPath -ErrorAction SilentlyContinue
+            
+            return @{
+                Exists = $true
+                SubkeyCount = @($subkeys).Count
+                ValueCount = ($values.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" }).Count
+            }
+        } else {
+            return @{
+                Exists = $false
+                SubkeyCount = 0
+                ValueCount = 0
+            }
+        }
+    } catch {
+        return @{
+            Exists = $false
+            SubkeyCount = 0
+            ValueCount = 0
+        }
+    }
+}
 
 function Get-UserSIDs {
     <#
@@ -510,6 +695,10 @@ function Get-UserSIDs {
         return @()
     }
 }
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Files/Folders
+# ============================================================================ #
 
 function New-FileRecord {
     <#
@@ -551,6 +740,10 @@ function Get-UserProfiles {
     }
 }
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Browser Entries
+# ============================================================================ #
+
 function New-BrowserRecord {
     <#
     .SYNOPSIS
@@ -572,41 +765,9 @@ function New-BrowserRecord {
     }
 }
 
-function Get-RegistryKeyDetails {
-    <#
-    .SYNOPSIS
-    Captures registry key metadata before removal
-    #>
-    param(
-        [string]$KeyPath
-    )
-    
-    try {
-        if (Test-Path $KeyPath) {
-            $key = Get-Item $KeyPath -ErrorAction Stop
-            $subkeys = Get-ChildItem $KeyPath -ErrorAction SilentlyContinue
-            $values = Get-ItemProperty $KeyPath -ErrorAction SilentlyContinue
-            
-            return @{
-                Exists = $true
-                SubkeyCount = @($subkeys).Count
-                ValueCount = ($values.PSObject.Properties | Where-Object { $_.Name -notlike "PS*" }).Count
-            }
-        } else {
-            return @{
-                Exists = $false
-                SubkeyCount = 0
-                ValueCount = 0
-            }
-        }
-    } catch {
-        return @{
-            Exists = $false
-            SubkeyCount = 0
-            ValueCount = 0
-        }
-    }
-}
+
+
+
 
 # ============================================================================ #
 # PROCESS TERMINATION
@@ -834,6 +995,279 @@ function Stop-MalwareService {
     Write-Log "  Not Found: $($RemediationResults.Summary.ServicesNotFound)" -Level INFO
     Write-Log "========================================" -Level INFO
 }
+
+# ============================================================================ #
+# CERTIFICATE ANALYSIS & REMEDIATION
+# ============================================================================ #
+
+function Remove-MalwareCertificates {
+    <#
+    .SYNOPSIS
+    Analyzes and removes malicious certificates
+    .DESCRIPTION
+    Scans certificate stores for suspicious certificates installed by malware.
+    Focuses on Root and TrustedPublisher stores which are critical for trust.
+    
+    WHY THIS MATTERS:
+    - Malware installs certificates to bypass security controls
+    - Can enable HTTPS interception and code signing
+    - Removing them prevents re-infection and trust exploitation
+    #>
+    
+    param(
+        [Parameter(Mandatory=$true)]
+        [hashtable]$CertConfig
+    )
+    
+    Write-Log "========================================" -Level INFO
+    Write-Log "CERTIFICATE ANALYSIS & REMEDIATION MODULE" -Level INFO
+    Write-Log "========================================" -Level INFO
+    Write-Log "Certificate stores to scan: $($CertConfig.Stores.Count)" -Level INFO
+    Write-Log "" -Level INFO
+    Write-Log "EDUCATION: Why Scan Certificates?" -Level INFO
+    Write-Log "  * Root Store = Trusted Certificate Authorities" -Level INFO
+    Write-Log "  * TrustedPublisher = Code signing trust" -Level INFO
+    Write-Log "  * Malware uses these to appear legitimate" -Level INFO
+    Write-Log "  * Can intercept HTTPS traffic (man-in-the-middle)" -Level INFO
+    Write-Log "" -Level INFO
+    
+    $allCertificates = @()
+    $suspiciousCertificates = @()
+    
+    # ========================================================================
+    # PHASE 1: ENUMERATION
+    # ========================================================================
+    
+    Write-Log "Phase 1: Certificate Enumeration" -Level INFO
+    
+    foreach ($storeConfig in $CertConfig.Stores) {
+        $location = $storeConfig.Location
+        $storeName = $storeConfig.Store
+        $riskLevel = $storeConfig.Risk
+        
+        $RemediationResults.Summary.CertStoresChecked++
+        
+        Write-Log "  Scanning: $location\$storeName (Risk: $riskLevel)" -Level INFO
+        
+        try {
+            # Open certificate store (read-only for enumeration)
+            $store = New-Object System.Security.Cryptography.X509Certificates.X509Store(
+                $storeName,
+                $location
+            )
+            $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+            
+            $certificates = $store.Certificates
+            Write-Log "    Found $($certificates.Count) certificate(s)" -Level INFO
+            
+            foreach ($cert in $certificates) {
+                $RemediationResults.Summary.CertificatesScanned++
+                
+                # Calculate metrics
+                $certAge = Get-CertificateAge -NotBefore $cert.NotBefore
+                $validityYears = Get-CertificateValidityPeriod -NotBefore $cert.NotBefore -NotAfter $cert.NotAfter
+                $isRecentlyInstalled = $certAge -le $CertConfig.RecentlyInstalledDays
+                $hasLongValidity = $validityYears -ge $CertConfig.SuspiciousValidityYears
+                $hasSuspiciousSubject = Test-SuspiciousSubject -Subject $cert.Subject -Keywords $CertConfig.SuspiciousKeywords
+                $isSelfSigned = ($cert.Subject -eq $cert.Issuer)
+                
+                # Build certificate details
+                $certDetails = @{
+                    Issuer = $cert.Issuer
+                    SerialNumber = $cert.SerialNumber
+                    NotBefore = $cert.NotBefore
+                    NotAfter = $cert.NotAfter
+                    AgeDays = $certAge
+                    ValidityYears = $validityYears
+                    IsSelfSigned = $isSelfSigned
+                    RiskLevel = $riskLevel
+                }
+                
+                # Flag suspicious certificates
+                $flagReasons = @()
+                $isSuspicious = $false
+                
+                if ($hasSuspiciousSubject) {
+                    $flagReasons += "Suspicious subject name"
+                    $isSuspicious = $true
+                }
+                
+                if ($isRecentlyInstalled -and $isSelfSigned -and $riskLevel -eq "CRITICAL") {
+                    $flagReasons += "Recently installed self-signed cert in critical store"
+                    $isSuspicious = $true
+                }
+                
+                if ($hasLongValidity -and $isSelfSigned) {
+                    $flagReasons += "Self-signed with unusually long validity period"
+                    $isSuspicious = $true
+                }
+                
+                if ($isSuspicious) {
+                    $suspiciousCertificates += @{
+                        Certificate = $cert
+                        Location = $location
+                        StoreName = $storeName
+                        Subject = $cert.Subject
+                        Thumbprint = $cert.Thumbprint
+                        Details = $certDetails
+                        FlagReasons = $flagReasons
+                    }
+                    
+                    $RemediationResults.Summary.CertificatesFlagged++
+                    
+                    # Truncate subject for log readability
+                    $subjectPreview = $cert.Subject.Substring(0, [Math]::Min(60, $cert.Subject.Length))
+                    Write-Log "    [FLAGGED] $subjectPreview" -Level WARNING
+                    Write-Log "      Thumbprint: $($cert.Thumbprint)" -Level WARNING
+                    Write-Log "      Reasons: $($flagReasons -join ', ')" -Level WARNING
+                }
+            }
+            
+            $store.Close()
+            
+        } catch {
+            Write-Log "    [ERROR] Failed to scan $location\$storeName - $($_.Exception.Message)" -Level ERROR
+            $RemediationResults.CriticalErrors += "Certificate Store: $location\$storeName - $($_.Exception.Message)"
+        }
+    }
+    
+    # ========================================================================
+    # PHASE 2: ANALYSIS SUMMARY
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 2: Analysis Summary" -Level INFO
+    Write-Log "  Total Certificates Scanned: $($RemediationResults.Summary.CertificatesScanned)" -Level INFO
+    Write-Log "  Suspicious Certificates Flagged: $($RemediationResults.Summary.CertificatesFlagged)" -Level WARNING
+    
+    if ($suspiciousCertificates.Count -eq 0) {
+        Write-Log "  [OK] No suspicious certificates detected" -Level SUCCESS
+        Write-Log "========================================" -Level INFO
+        return
+    }
+    
+    Write-Log "" -Level INFO
+    Write-Log "  FLAGGED CERTIFICATE DETAILS:" -Level WARNING
+    
+    foreach ($suspCert in $suspiciousCertificates) {
+        Write-Log "    ---" -Level WARNING
+        Write-Log "    Subject: $($suspCert.Subject)" -Level INFO
+        Write-Log "    Issuer: $($suspCert.Details.Issuer)" -Level INFO
+        Write-Log "    Location: $($suspCert.Location)\$($suspCert.StoreName)" -Level INFO
+        Write-Log "    Thumbprint: $($suspCert.Thumbprint)" -Level INFO
+        Write-Log "    Age: $($suspCert.Details.AgeDays) days" -Level INFO
+        Write-Log "    Validity: $($suspCert.Details.ValidityYears) years" -Level INFO
+        Write-Log "    Self-Signed: $($suspCert.Details.IsSelfSigned)" -Level INFO
+        Write-Log "    Risk: $($suspCert.Details.RiskLevel)" -Level WARNING
+        Write-Log "    Flagged: $($suspCert.FlagReasons -join ', ')" -Level WARNING
+        
+        # Create flagged record
+        $record = New-CertificateRecord -StoreLocation $suspCert.Location `
+            -StoreName $suspCert.StoreName -Subject $suspCert.Subject `
+            -Thumbprint $suspCert.Thumbprint -Status "FLAGGED" `
+            -Details $suspCert.Details -FlagReasons $suspCert.FlagReasons
+        $RemediationResults.Certificates.Flagged += $record
+    }
+    
+    # ========================================================================
+    # PHASE 3: REMOVAL
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 3: Certificate Removal" -Level WARNING
+    Write-Log "  Attempting to remove $($suspiciousCertificates.Count) certificate(s)..." -Level WARNING
+    
+    foreach ($suspCert in $suspiciousCertificates) {
+        Write-Log "" -Level INFO
+        Write-Log "  Processing: $($suspCert.Subject.Substring(0, [Math]::Min(60, $suspCert.Subject.Length)))" -Level INFO
+        Write-Log "    Thumbprint: $($suspCert.Thumbprint)" -Level INFO
+        Write-Log "    Location: $($suspCert.Location)\$($suspCert.StoreName)" -Level INFO
+        
+        try {
+            # Open store in ReadWrite mode
+            $store = New-Object System.Security.Cryptography.X509Certificates.X509Store(
+                $suspCert.StoreName,
+                $suspCert.Location
+            )
+            $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            
+            # Find certificate by thumbprint
+            $certToRemove = $store.Certificates | Where-Object { $_.Thumbprint -eq $suspCert.Thumbprint }
+            
+            if ($certToRemove) {
+                # Attempt removal
+                $store.Remove($certToRemove)
+                Start-Sleep -Milliseconds 500
+                
+                # Verify removal
+                $checkCert = $store.Certificates | Where-Object { $_.Thumbprint -eq $suspCert.Thumbprint }
+                
+                if (-not $checkCert) {
+                    Write-Log "    [SUCCESS] Certificate removed" -Level SUCCESS
+                    
+                    $record = New-CertificateRecord -StoreLocation $suspCert.Location `
+                        -StoreName $suspCert.StoreName -Subject $suspCert.Subject `
+                        -Thumbprint $suspCert.Thumbprint -Status "REMOVED" `
+                        -Details $suspCert.Details -FlagReasons $suspCert.FlagReasons
+                    $RemediationResults.Certificates.Removed += $record
+                    $RemediationResults.Summary.CertificatesRemoved++
+                } else {
+                    Write-Log "    [FAILED] Certificate still present after removal" -Level ERROR
+                    
+                    $record = New-CertificateRecord -StoreLocation $suspCert.Location `
+                        -StoreName $suspCert.StoreName -Subject $suspCert.Subject `
+                        -Thumbprint $suspCert.Thumbprint -Status "FAILED" `
+                        -Details $suspCert.Details -FlagReasons $suspCert.FlagReasons `
+                        -ErrorMessage "Certificate still present after removal"
+                    $RemediationResults.Certificates.Failed += $record
+                    $RemediationResults.Summary.CertificatesFailed++
+                }
+            } else {
+                Write-Log "    [NOT FOUND] Certificate not found (may have been removed already)" -Level WARNING
+                
+                $record = New-CertificateRecord -StoreLocation $suspCert.Location `
+                    -StoreName $suspCert.StoreName -Subject $suspCert.Subject `
+                    -Thumbprint $suspCert.Thumbprint -Status "NOT_FOUND" `
+                    -Details $suspCert.Details -FlagReasons $suspCert.FlagReasons
+                $RemediationResults.Certificates.NotFound += $record
+            }
+            
+            $store.Close()
+            
+        } catch {
+            $errorMsg = $_.Exception.Message
+            Write-Log "    [ERROR] Failed to remove certificate: $errorMsg" -Level ERROR
+            
+            # Check for specific error types
+            if ($errorMsg -like "*Access is denied*" -or $errorMsg -like "*protected*") {
+                Write-Log "    [!] Certificate may be kernel-level protected" -Level ERROR
+                Write-Log "    [!] Manual removal may be required" -Level ERROR
+            }
+            
+            $record = New-CertificateRecord -StoreLocation $suspCert.Location `
+                -StoreName $suspCert.StoreName -Subject $suspCert.Subject `
+                -Thumbprint $suspCert.Thumbprint -Status "ERROR" `
+                -Details $suspCert.Details -FlagReasons $suspCert.FlagReasons `
+                -ErrorMessage $errorMsg
+            $RemediationResults.Certificates.Errored += $record
+            $RemediationResults.Summary.CertificatesErrored++
+            
+            $RemediationResults.CriticalErrors += "Certificate: $($suspCert.Thumbprint) - $errorMsg"
+        }
+    }
+    
+    Write-Log "" -Level INFO
+    Write-Log "========================================" -Level INFO
+    Write-Log "CERTIFICATE REMEDIATION SUMMARY" -Level INFO
+    Write-Log "  Stores Checked: $($RemediationResults.Summary.CertStoresChecked)" -Level INFO
+    Write-Log "  Certificates Scanned: $($RemediationResults.Summary.CertificatesScanned)" -Level INFO
+    Write-Log "  Certificates Flagged: $($RemediationResults.Summary.CertificatesFlagged)" -Level WARNING
+    Write-Log "  Certificates Removed: $($RemediationResults.Summary.CertificatesRemoved)" -Level SUCCESS
+    Write-Log "  Certificates Failed: $($RemediationResults.Summary.CertificatesFailed)" -Level ERROR
+    Write-Log "  Certificates Errored: $($RemediationResults.Summary.CertificatesErrored)" -Level ERROR
+    Write-Log "========================================" -Level INFO
+}
+
 
 # ============================================================================ #
 # SCHEDULED TASK REMEDIATION
@@ -1936,32 +2370,36 @@ Start-Sleep -Seconds 2
 Stop-MalwareService -ServiceNames $MalwareConfig.Services
 Start-Sleep -Seconds 2
 
-# 3. SCHEDULED TASKS - Remove persistence (can restart services/processes)
+# 3. CERTIFICATES - Remove malicious trust anchors (prevents re-trust)
+Remove-MalwareCertificates -CertConfig $MalwareConfig.Certificates
+Start-Sleep -Seconds 2
+
+# 4. SCHEDULED TASKS - Remove persistence (can restart services/processes)
 Remove-MalwareTask -TaskPatterns $MalwareConfig.TaskPatterns
 Start-Sleep -Seconds 2
 
-# 4. REGISTRY - RUN KEYS - Remove autostart entries (another persistence layer)
+# 5. REGISTRY - RUN KEYS - Remove autostart entries (another persistence layer)
 Remove-MalwareRegistryPersistence -RunKeyPatterns $MalwareConfig.RunKeyPatterns `
     -RegisteredAppPatterns $MalwareConfig.RegisteredAppPatterns `
     -FeatureUsagePatterns $MalwareConfig.FeatureUsagePatterns
 Start-Sleep -Seconds 2
 
-# 5. FILES & FOLDERS - Safe to remove now (nothing using them)
+# 6. FILES & FOLDERS - Safe to remove now (nothing using them)
 Remove-MalwareFiles -UserPaths $MalwareConfig.UserPaths `
     -DownloadPatterns $MalwareConfig.DownloadPatterns `
     -SystemPaths $MalwareConfig.SystemPaths
 Start-Sleep -Seconds 2
 
-# 6. REGISTRY - CLEANUP - Remove remaining configuration/artifacts
+# 7. REGISTRY - CLEANUP - Remove remaining configuration/artifacts
 Remove-MalwareRegistryKeys -HKLMPaths $MalwareConfig.RegistryHKLM `
     -HKUPatterns $MalwareConfig.RegistryHKUPatterns
 Start-Sleep -Seconds 2
 
-# 7. BROWSER ENTRIES - Clean up browser hijacking (ProgID, StartMenuInternet)
+# 8. BROWSER ENTRIES - Clean up browser hijacking (ProgID, StartMenuInternet)
 Remove-MalwareBrowserEntries -BrowserPatterns $MalwareConfig.BrowserStartMenuPatterns
 Start-Sleep -Seconds 2
 
-# 8. FILE ASSOCIATIONS - Remove orphaned ApplicationAssociationToasts
+# 9. FILE ASSOCIATIONS - Remove orphaned ApplicationAssociationToasts
 if ($MalwareConfig.ApplicationAssociationPatterns) {
     Remove-MalwareFileAssociations -AssociationPatterns $MalwareConfig.ApplicationAssociationPatterns
     Start-Sleep -Seconds 2
@@ -1983,6 +2421,7 @@ Write-Log "" -Level INFO
 Write-Log "FINAL SUMMARY" -Level INFO
 Write-Log "Processes: Checked=$($RemediationResults.Summary.ProcessesChecked) Killed=$($RemediationResults.Summary.ProcessesKilled) Failed=$($RemediationResults.Summary.ProcessesFailed)" -Level INFO
 Write-Log "Services: Checked=$($RemediationResults.Summary.ServicesChecked) Removed=$($RemediationResults.Summary.ServicesRemoved) Failed=$($RemediationResults.Summary.ServicesFailed)" -Level INFO
+Write-Log "Certificates: Scanned=$($RemediationResults.Summary.CertificatesScanned) Flagged=$($RemediationResults.Summary.CertificatesFlagged) Removed=$($RemediationResults.Summary.CertificatesRemoved) Failed=$($RemediationResults.Summary.CertificatesFailed)" -Level INFO
 Write-Log "Tasks: Checked=$($RemediationResults.Summary.TasksChecked) Removed=$($RemediationResults.Summary.TasksRemoved) Failed=$($RemediationResults.Summary.TasksFailed)" -Level INFO
 Write-Log "TaskCache: Checked=$($RemediationResults.Summary.TaskCacheChecked) Removed=$($RemediationResults.Summary.TaskCacheRemoved) Failed=$($RemediationResults.Summary.TaskCacheFailed)" -Level INFO
 Write-Log "Registry: Keys Checked=$($RemediationResults.Summary.RegistryKeysChecked) Removed=$($RemediationResults.Summary.RegistryValuesRemoved) Failed=$($RemediationResults.Summary.RegistryValuesFailed)" -Level INFO
