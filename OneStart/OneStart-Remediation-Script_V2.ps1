@@ -3606,123 +3606,390 @@ function Remove-MalwareFileAssociations {
 
 Write-Log "============================================" -Level INFO
 Write-Log "MALWARE REMEDIATION FRAMEWORK" -Level INFO
-Write-Log "Target: $($MalwareConfig.Name)" -Level INFO
+Write-Log "Target: $($MalwareConfig.Metadata.ThreatFamily)" -Level INFO
 Write-Log "Version: $($MalwareConfig.Metadata.Version)" -Level INFO
-Write-Log "Threat Family: $($MalwareConfig.Metadata.ThreatFamily)" -Level INFO
-Write-Log "Severity: $($MalwareConfig.Metadata.Severity)" -Level INFO
 Write-Log "Started: $($RemediationResults.StartTime)" -Level INFO
 Write-Log "============================================" -Level INFO
+Write-Log "" -Level INFO
 
-# 1. PROCESSES - Stop active threats immediately
-Stop-MalwareProcess -ProcessNames $MalwareConfig.Processes
-Start-Sleep -Seconds 2
+# ============================================================================
+# MODULE 1: PROCESS TERMINATION
+# ============================================================================
+Write-Log "[MODULE 1/9] Process Termination" -Level INFO
+$moduleStart = Get-Date
 
-# 2. SERVICES - Prevent automatic restart of processes
-Stop-MalwareService -ServiceNames $MalwareConfig.Services
-Start-Sleep -Seconds 2
-
-# 3. CERTIFICATES - Remove malicious trust anchors (prevents re-trust)
-Remove-MalwareCertificates -CertConfig $MalwareConfig.Certificates
-Start-Sleep -Seconds 2
-
-# 4. SCHEDULED TASKS - Remove persistence (can restart services/processes)
-Remove-MalwareTask -TaskPatterns $MalwareConfig.TaskPatterns
-Start-Sleep -Seconds 2
-
-# 5. REGISTRY - RUN KEYS - Remove autostart entries (another persistence layer)
-Remove-MalwareRegistryPersistence -RunKeyPatterns $MalwareConfig.RunKeyPatterns `
-    -RegisteredAppPatterns $MalwareConfig.RegisteredAppPatterns `
-    -FeatureUsagePatterns $MalwareConfig.FeatureUsagePatterns
-Start-Sleep -Seconds 2
-
-# 6. FILES & FOLDERS - Safe to remove now (nothing using them)
-Remove-MalwareFiles -UserPaths $MalwareConfig.UserPaths `
-    -DownloadPatterns $MalwareConfig.DownloadPatterns `
-    -SystemPaths $MalwareConfig.SystemPaths
-Start-Sleep -Seconds 2
-
-# 7. REGISTRY - CLEANUP - Remove remaining configuration/artifacts
-Remove-MalwareRegistryKeys -HKLMPaths $MalwareConfig.RegistryHKLM `
-    -HKUPatterns $MalwareConfig.RegistryHKUPatterns
-Start-Sleep -Seconds 2
-
-# 8. BROWSER ENTRIES - Clean up browser hijacking (ProgID, StartMenuInternet)
-Remove-MalwareBrowserEntries -BrowserPatterns $MalwareConfig.BrowserStartMenuPatterns `
-    -FeatureUsagePatterns $MalwareConfig.FeatureUsagePatterns
-Start-Sleep -Seconds 2
-
-# 9. FILE ASSOCIATIONS - Remove orphaned ApplicationAssociationToasts
-if ($MalwareConfig.ApplicationAssociationPatterns) {
-    Remove-MalwareFileAssociations -AssociationPatterns $MalwareConfig.ApplicationAssociationPatterns
+try {
+    Stop-MalwareProcess -ProcessNames $MalwareConfig.Processes
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStart -EndTime $moduleEnd
     Start-Sleep -Seconds 2
+} catch {
+    $moduleEnd = Get-Date
+    Write-Log "[ERROR] Process module failed: $($_.Exception.Message)" -Level ERROR
+    $RemediationResults.CriticalErrors += "Process Module: $($_.Exception.Message)"
+    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStart -EndTime $moduleEnd
 }
 
-# ============================================================================ #
-# CALCULATIONS FOR FINAL REPORT
-# ============================================================================ #
+Write-Log "" -Level INFO
 
-# Calculate overall totals
-$RemediationResults.Summary.TotalActionsAttempted = 
-    $RemediationResults.Summary.ProcessesChecked +
-    $RemediationResults.Summary.ServicesChecked +
-    $RemediationResults.Summary.TasksChecked +
-    $RemediationResults.Summary.RegistryKeysChecked +
-    $RemediationResults.Summary.PathsChecked +
-    $RemediationResults.Summary.FileAssociationsChecked
+# ============================================================================
+# MODULE 2: SERVICE REMEDIATION
+# ============================================================================
+Write-Log "[MODULE 2/9] Service Remediation" -Level INFO
+$moduleStart = Get-Date
 
-$RemediationResults.Summary.TotalActionsSuccessful = 
-    $RemediationResults.Summary.ProcessesTerminated +
-    $RemediationResults.Summary.ServicesRemoved +
-    $RemediationResults.Summary.TasksRemoved +
-    $RemediationResults.Summary.RegistryValuesRemoved +
-    $RemediationResults.Summary.PathsRemoved
+try {
+    Stop-MalwareService -ServiceNames $MalwareConfig.Services
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "Services" -StartTime $moduleStart -EndTime $moduleEnd
+    Start-Sleep -Seconds 2
+} catch {
+    $moduleEnd = Get-Date
+    Write-Log "[ERROR] Service module failed: $($_.Exception.Message)" -Level ERROR
+    $RemediationResults.CriticalErrors += "Service Module: $($_.Exception.Message)"
+    Write-ModuleTiming -ModuleName "Services" -StartTime $moduleStart -EndTime $moduleEnd
+}
 
-$RemediationResults.Summary.TotalActionsFailed = 
-    $RemediationResults.Summary.ProcessesFailed +
-    $RemediationResults.Summary.ServicesFailed +
-    $RemediationResults.Summary.TasksFailed +
-    $RemediationResults.Summary.RegistryValuesFailed +
-    $RemediationResults.Summary.PathsFailed
+Write-Log "" -Level INFO
+
+# ============================================================================
+# MODULE 3: CERTIFICATE ANALYSIS & REMEDIATION
+# ============================================================================
+Write-Log "[MODULE 3/9] Certificate Analysis & Remediation" -Level INFO
+$moduleStart = Get-Date
+
+try {
+    Remove-MalwareCertificates -CertConfig $MalwareConfig.Certificates
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStart -EndTime $moduleEnd
+    Start-Sleep -Seconds 2
+} catch {
+    $moduleEnd = Get-Date
+    Write-Log "[ERROR] Certificate module failed: $($_.Exception.Message)" -Level ERROR
+    $RemediationResults.CriticalErrors += "Certificate Module: $($_.Exception.Message)"
+    Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStart -EndTime $moduleEnd
+}
+
+Write-Log "" -Level INFO
+
+# ============================================================================
+# MODULE 4: SCHEDULED TASK REMEDIATION
+# ============================================================================
+Write-Log "[MODULE 4/9] Scheduled Task Remediation" -Level INFO
+$moduleStart = Get-Date
+
+try {
+    Remove-MalwareTask -TaskPatterns $MalwareConfig.TaskPatterns
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "Tasks" -StartTime $moduleStart -EndTime $moduleEnd
+    Start-Sleep -Seconds 2
+} catch {
+    $moduleEnd = Get-Date
+    Write-Log "[ERROR] Task module failed: $($_.Exception.Message)" -Level ERROR
+    $RemediationResults.CriticalErrors += "Task Module: $($_.Exception.Message)"
+    Write-ModuleTiming -ModuleName "Tasks" -StartTime $moduleStart -EndTime $moduleEnd
+}
+
+Write-Log "" -Level INFO
+
+# ============================================================================
+# MODULE 5: REGISTRY PERSISTENCE REMOVAL
+# ============================================================================
+Write-Log "[MODULE 5/9] Registry Persistence Removal" -Level INFO
+$moduleStart = Get-Date
+
+try {
+    Remove-MalwareRegistryPersistence -RunKeyPatterns $MalwareConfig.RunKeyPatterns `
+        -RegisteredAppPatterns $MalwareConfig.RegisteredAppPatterns `
+        -FeatureUsagePatterns $MalwareConfig.FeatureUsagePatterns
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "RegistryPersistence" -StartTime $moduleStart -EndTime $moduleEnd
+    Start-Sleep -Seconds 2
+} catch {
+    $moduleEnd = Get-Date
+    Write-Log "[ERROR] Registry Persistence module failed: $($_.Exception.Message)" -Level ERROR
+    $RemediationResults.CriticalErrors += "Registry Persistence Module: $($_.Exception.Message)"
+    Write-ModuleTiming -ModuleName "RegistryPersistence" -StartTime $moduleStart -EndTime $moduleEnd
+}
+
+Write-Log "" -Level INFO
+
+# ============================================================================
+# MODULE 6: FILE & FOLDER CLEANUP
+# ============================================================================
+Write-Log "[MODULE 6/9] File & Folder Cleanup" -Level INFO
+$moduleStart = Get-Date
+
+try {
+    Remove-MalwareFiles -UserPaths $MalwareConfig.UserPaths `
+        -DownloadPatterns $MalwareConfig.DownloadPatterns `
+        -SystemPaths $MalwareConfig.SystemPaths
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "Files" -StartTime $moduleStart -EndTime $moduleEnd
+    Start-Sleep -Seconds 2
+} catch {
+    $moduleEnd = Get-Date
+    Write-Log "[ERROR] File Cleanup module failed: $($_.Exception.Message)" -Level ERROR
+    $RemediationResults.CriticalErrors += "File Cleanup Module: $($_.Exception.Message)"
+    Write-ModuleTiming -ModuleName "Files" -StartTime $moduleStart -EndTime $moduleEnd
+}
+
+Write-Log "" -Level INFO
+
+# ============================================================================
+# MODULE 7: REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION)
+# ============================================================================
+Write-Log "[MODULE 7/9] Registry Cleanup (Artifacts)" -Level INFO
+$moduleStart = Get-Date
+
+try {
+    Remove-MalwareRegistryKeys -HKLMPaths $MalwareConfig.RegistryHKLM `
+        -HKUPatterns $MalwareConfig.RegistryHKUPatterns
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStart -EndTime $moduleEnd
+    Start-Sleep -Seconds 2
+} catch {
+    $moduleEnd = Get-Date
+    Write-Log "[ERROR] Registry Cleanup module failed: $($_.Exception.Message)" -Level ERROR
+    $RemediationResults.CriticalErrors += "Registry Cleanup Module: $($_.Exception.Message)"
+    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStart -EndTime $moduleEnd
+}
+
+Write-Log "" -Level INFO
+
+# ============================================================================
+# MODULE 8: BROWSER ENTRY CLEANUP
+# ============================================================================
+Write-Log "[MODULE 8/9] Browser Entry Cleanup" -Level INFO
+$moduleStart = Get-Date
+
+try {
+    Remove-MalwareBrowserEntries -BrowserPatterns $MalwareConfig.BrowserStartMenuPatterns `
+        -FeatureUsagePatterns $MalwareConfig.FeatureUsagePatterns
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "BrowserEntries" -StartTime $moduleStart -EndTime $moduleEnd
+    Start-Sleep -Seconds 2
+} catch {
+    $moduleEnd = Get-Date
+    Write-Log "[ERROR] Browser Entry module failed: $($_.Exception.Message)" -Level ERROR
+    $RemediationResults.CriticalErrors += "Browser Entry Module: $($_.Exception.Message)"
+    Write-ModuleTiming -ModuleName "BrowserEntries" -StartTime $moduleStart -EndTime $moduleEnd
+}
+
+Write-Log "" -Level INFO
+
+# ============================================================================
+# MODULE 9: FILE ASSOCIATION CLEANUP
+# ============================================================================
+Write-Log "[MODULE 9/9] File Association Cleanup" -Level INFO
+$moduleStart = Get-Date
+
+try {
+    if ($MalwareConfig.ApplicationAssociationPatterns) {
+        Remove-MalwareFileAssociations -AssociationPatterns $MalwareConfig.ApplicationAssociationPatterns
+        $moduleEnd = Get-Date
+        Write-ModuleTiming -ModuleName "FileAssociations" -StartTime $moduleStart -EndTime $moduleEnd
+        Start-Sleep -Seconds 2
+    } else {
+        Write-Log "  [SKIPPED] No ApplicationAssociationPatterns defined" -Level INFO
+        $moduleEnd = Get-Date
+        $RemediationResults.ModuleTiming["FileAssociations"] = 0
+    }
+} catch {
+    $moduleEnd = Get-Date
+    Write-Log "[ERROR] File Association module failed: $($_.Exception.Message)" -Level ERROR
+    $RemediationResults.CriticalErrors += "File Association Module: $($_.Exception.Message)"
+    Write-ModuleTiming -ModuleName "FileAssociations" -StartTime $moduleStart -EndTime $moduleEnd
+}
+
+Write-Log "" -Level INFO
 
 # ============================================================================ #
 # FINAL REPORT
 # ============================================================================ #
 
 $RemediationResults.EndTime = Get-Date
-$duration = $RemediationResults.EndTime - $RemediationResults.StartTime
+$totalDuration = $RemediationResults.EndTime - $RemediationResults.StartTime
+
+# Calculate total actions
+$RemediationResults.Summary.TotalActionsAttempted = 
+    $RemediationResults.Summary.ProcessesChecked +
+    $RemediationResults.Summary.ServicesChecked +
+    $RemediationResults.Summary.CertificatesScanned +
+    $RemediationResults.Summary.TasksChecked +
+    $RemediationResults.Summary.TaskCacheChecked +
+    $RemediationResults.Summary.RegistryKeysChecked +
+    $RemediationResults.Summary.PathsChecked +
+    $RemediationResults.Summary.BrowserEntriesChecked +
+    $RemediationResults.Summary.FileAssociationsChecked
+
+$RemediationResults.Summary.TotalActionsSuccessful = 
+    $RemediationResults.Summary.ProcessesTerminated +
+    $RemediationResults.Summary.ServicesRemoved +
+    $RemediationResults.Summary.CertificatesRemoved +
+    $RemediationResults.Summary.TasksRemoved +
+    $RemediationResults.Summary.TaskCacheRemoved +
+    $RemediationResults.Summary.RegistryValuesRemoved +
+    $RemediationResults.Summary.PathsRemoved +
+    $RemediationResults.Summary.BrowserEntriesRemoved +
+    $RemediationResults.Summary.FileAssociationsRemoved
+
+$RemediationResults.Summary.TotalActionsFailed = 
+    $RemediationResults.Summary.ProcessesFailed +
+    $RemediationResults.Summary.ServicesFailed +
+    $RemediationResults.Summary.CertificatesFailed +
+    $RemediationResults.Summary.TasksFailed +
+    $RemediationResults.Summary.TaskCacheFailed +
+    $RemediationResults.Summary.RegistryValuesFailed +
+    $RemediationResults.Summary.PathsFailed +
+    $RemediationResults.Summary.BrowserEntriesFailed +
+    $RemediationResults.Summary.FileAssociationsFailed
+
+# ============================================================================
+# COMPREHENSIVE FINAL REPORT
+# ============================================================================
 
 Write-Log "============================================" -Level INFO
 Write-Log "REMEDIATION COMPLETE" -Level SUCCESS
-Write-Log "Threat: $($MalwareConfig.Name) ($($MalwareConfig.Metadata.ThreatFamily))" -Level INFO
-Write-Log "Severity: $($MalwareConfig.Metadata.Severity)" -Level INFO
-Write-Log "Script Version: $($MalwareConfig.Metadata.Version)" -Level INFO
-Write-Log "Duration: $($duration.TotalSeconds) seconds" -Level INFO
-Write-Log "Log File: $logFile" -Level INFO
 Write-Log "============================================" -Level INFO
 Write-Log "" -Level INFO
-Write-Log "FINAL SUMMARY" -Level INFO
-Write-Log "Processes: Checked=$($RemediationResults.Summary.ProcessesChecked) Terminated=$($RemediationResults.Summary.ProcessesTerminated) Failed=$($RemediationResults.Summary.ProcessesFailed)" -Level INFO
-Write-Log "Services: Checked=$($RemediationResults.Summary.ServicesChecked) Removed=$($RemediationResults.Summary.ServicesRemoved) Failed=$($RemediationResults.Summary.ServicesFailed)" -Level INFO
-Write-Log "Certificates: Scanned=$($RemediationResults.Summary.CertificatesScanned) Flagged=$($RemediationResults.Summary.CertificatesFlagged) Removed=$($RemediationResults.Summary.CertificatesRemoved) Failed=$($RemediationResults.Summary.CertificatesFailed)" -Level INFO
-Write-Log "Tasks: Checked=$($RemediationResults.Summary.TasksChecked) Removed=$($RemediationResults.Summary.TasksRemoved) Failed=$($RemediationResults.Summary.TasksFailed)" -Level INFO
-Write-Log "TaskCache: Checked=$($RemediationResults.Summary.TaskCacheChecked) Removed=$($RemediationResults.Summary.TaskCacheRemoved) Failed=$($RemediationResults.Summary.TaskCacheFailed)" -Level INFO
-Write-Log "Registry: Keys Checked=$($RemediationResults.Summary.RegistryKeysChecked) Removed=$($RemediationResults.Summary.RegistryValuesRemoved) Failed=$($RemediationResults.Summary.RegistryValuesFailed)" -Level INFO
-Write-Log "Files: Checked=$($RemediationResults.Summary.PathsChecked) Removed=$($RemediationResults.Summary.PathsRemoved) Failed=$($RemediationResults.Summary.PathsFailed)" -Level INFO
-Write-Log "Critical Errors: $($RemediationResults.CriticalErrors.Count)" -Level ERROR
-Write-Log "============================================" -Level INFO
+Write-Log "EXECUTION SUMMARY" -Level INFO
+Write-Log "  Start Time: $($RemediationResults.StartTime)" -Level INFO
+Write-Log "  End Time: $($RemediationResults.EndTime)" -Level INFO
+Write-Log "  Total Duration: $([math]::Round($totalDuration.TotalSeconds, 2)) seconds" -Level INFO
+Write-Log "" -Level INFO
 
-# Add detailed breakdown if critical errors exist
+Write-Log "MODULE TIMING BREAKDOWN" -Level INFO
+Write-Log "  [1] Processes:            $([math]::Round($RemediationResults.ModuleTiming.Processes, 2))s" -Level INFO
+Write-Log "  [2] Services:             $([math]::Round($RemediationResults.ModuleTiming.Services, 2))s" -Level INFO
+Write-Log "  [3] Certificates:         $([math]::Round($RemediationResults.ModuleTiming.Certificates, 2))s" -Level INFO
+Write-Log "  [4] Tasks:                $([math]::Round($RemediationResults.ModuleTiming.Tasks, 2))s" -Level INFO
+Write-Log "  [5] Registry Persistence: $([math]::Round($RemediationResults.ModuleTiming.RegistryPersistence, 2))s" -Level INFO
+Write-Log "  [6] Files:                $([math]::Round($RemediationResults.ModuleTiming.Files, 2))s" -Level INFO
+Write-Log "  [7] Registry Cleanup:     $([math]::Round($RemediationResults.ModuleTiming.RegistryCleanup, 2))s" -Level INFO
+Write-Log "  [8] Browser Entries:      $([math]::Round($RemediationResults.ModuleTiming.BrowserEntries, 2))s" -Level INFO
+Write-Log "  [9] File Associations:    $([math]::Round($RemediationResults.ModuleTiming.FileAssociations, 2))s" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "DETAILED STATISTICS" -Level INFO
+Write-Log "---" -Level INFO
+Write-Log "PROCESSES" -Level INFO
+Write-Log "  Checked:     $($RemediationResults.Summary.ProcessesChecked)" -Level INFO
+Write-Log "  Found:       $($RemediationResults.Summary.ProcessesFound)" -Level INFO
+Write-Log "  Terminated:  $($RemediationResults.Summary.ProcessesTerminated)" -Level SUCCESS
+Write-Log "  Failed:      $($RemediationResults.Summary.ProcessesFailed)" -Level ERROR
+Write-Log "  Errored:     $($RemediationResults.Summary.ProcessesErrored)" -Level ERROR
+Write-Log "  Not Found:   $($RemediationResults.Summary.ProcessesNotFound)" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "SERVICES" -Level INFO
+Write-Log "  Checked:     $($RemediationResults.Summary.ServicesChecked)" -Level INFO
+Write-Log "  Found:       $($RemediationResults.Summary.ServicesFound)" -Level INFO
+Write-Log "  Removed:     $($RemediationResults.Summary.ServicesRemoved)" -Level SUCCESS
+Write-Log "  Failed:      $($RemediationResults.Summary.ServicesFailed)" -Level ERROR
+Write-Log "  Errored:     $($RemediationResults.Summary.ServicesErrored)" -Level ERROR
+Write-Log "  Not Found:   $($RemediationResults.Summary.ServicesNotFound)" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "CERTIFICATES" -Level INFO
+Write-Log "  Stores Checked:  $($RemediationResults.Summary.CertStoresChecked)" -Level INFO
+Write-Log "  Scanned:         $($RemediationResults.Summary.CertificatesScanned)" -Level INFO
+Write-Log "  Flagged:         $($RemediationResults.Summary.CertificatesFlagged)" -Level WARNING
+Write-Log "  Removed:         $($RemediationResults.Summary.CertificatesRemoved)" -Level SUCCESS
+Write-Log "  Failed:          $($RemediationResults.Summary.CertificatesFailed)" -Level ERROR
+Write-Log "  Errored:         $($RemediationResults.Summary.CertificatesErrored)" -Level ERROR
+Write-Log "  Not Found:       $($RemediationResults.Summary.CertificatesNotFound)" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "SCHEDULED TASKS" -Level INFO
+Write-Log "  Checked:     $($RemediationResults.Summary.TasksChecked)" -Level INFO
+Write-Log "  Found:       $($RemediationResults.Summary.TasksFound)" -Level INFO
+Write-Log "  Removed:     $($RemediationResults.Summary.TasksRemoved)" -Level SUCCESS
+Write-Log "  Failed:      $($RemediationResults.Summary.TasksFailed)" -Level ERROR
+Write-Log "  Errored:     $($RemediationResults.Summary.TasksErrored)" -Level ERROR
+Write-Log "  Not Found:   $($RemediationResults.Summary.TasksNotFound)" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "TASK CACHE" -Level INFO
+Write-Log "  Checked:     $($RemediationResults.Summary.TaskCacheChecked)" -Level INFO
+Write-Log "  Found:       $($RemediationResults.Summary.TaskCacheFound)" -Level INFO
+Write-Log "  Removed:     $($RemediationResults.Summary.TaskCacheRemoved)" -Level SUCCESS
+Write-Log "  Failed:      $($RemediationResults.Summary.TaskCacheFailed)" -Level ERROR
+Write-Log "  Errored:     $($RemediationResults.Summary.TaskCacheErrored)" -Level ERROR
+Write-Log "  Not Found:   $($RemediationResults.Summary.TaskCacheNotFound)" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "REGISTRY" -Level INFO
+Write-Log "  Keys Checked:    $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
+Write-Log "  Values Found:    $($RemediationResults.Summary.RegistryValuesFound)" -Level INFO
+Write-Log "  Values Removed:  $($RemediationResults.Summary.RegistryValuesRemoved)" -Level SUCCESS
+Write-Log "  Values Failed:   $($RemediationResults.Summary.RegistryValuesFailed)" -Level ERROR
+Write-Log "  Values Errored:  $($RemediationResults.Summary.RegistryValuesErrored)" -Level ERROR
+Write-Log "  Values Not Found: $($RemediationResults.Summary.RegistryValuesNotFound)" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "FILES & FOLDERS" -Level INFO
+Write-Log "  Checked:     $($RemediationResults.Summary.PathsChecked)" -Level INFO
+Write-Log "  Found:       $($RemediationResults.Summary.PathsFound)" -Level INFO
+Write-Log "  Removed:     $($RemediationResults.Summary.PathsRemoved)" -Level SUCCESS
+Write-Log "  Failed:      $($RemediationResults.Summary.PathsFailed)" -Level ERROR
+Write-Log "  Errored:     $($RemediationResults.Summary.PathsErrored)" -Level ERROR
+Write-Log "  Not Found:   $($RemediationResults.Summary.PathsNotFound)" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "BROWSER ENTRIES" -Level INFO
+Write-Log "  Checked:     $($RemediationResults.Summary.BrowserEntriesChecked)" -Level INFO
+Write-Log "  Found:       $($RemediationResults.Summary.BrowserEntriesFound)" -Level INFO
+Write-Log "  Removed:     $($RemediationResults.Summary.BrowserEntriesRemoved)" -Level SUCCESS
+Write-Log "  Failed:      $($RemediationResults.Summary.BrowserEntriesFailed)" -Level ERROR
+Write-Log "  Errored:     $($RemediationResults.Summary.BrowserEntriesErrored)" -Level ERROR
+Write-Log "  Not Found:   $($RemediationResults.Summary.BrowserEntriesNotFound)" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "FILE ASSOCIATIONS" -Level INFO
+Write-Log "  Checked:     $($RemediationResults.Summary.FileAssociationsChecked)" -Level INFO
+Write-Log "  Found:       $($RemediationResults.Summary.FileAssociationsFound)" -Level INFO
+Write-Log "  Removed:     $($RemediationResults.Summary.FileAssociationsRemoved)" -Level SUCCESS
+Write-Log "  Failed:      $($RemediationResults.Summary.FileAssociationsFailed)" -Level ERROR
+Write-Log "  Errored:     $($RemediationResults.Summary.FileAssociationsErrored)" -Level ERROR
+Write-Log "  Not Found:   $($RemediationResults.Summary.FileAssociationsNotFound)" -Level INFO
+Write-Log "" -Level INFO
+
+Write-Log "---" -Level INFO
+Write-Log "OVERALL SUMMARY" -Level INFO
+Write-Log "  Total Actions Attempted:   $($RemediationResults.Summary.TotalActionsAttempted)" -Level INFO
+Write-Log "  Total Actions Successful:  $($RemediationResults.Summary.TotalActionsSuccessful)" -Level SUCCESS
+Write-Log "  Total Actions Failed:      $($RemediationResults.Summary.TotalActionsFailed)" -Level ERROR
+Write-Log "  Critical Errors:           $($RemediationResults.CriticalErrors.Count)" -Level ERROR
+Write-Log "" -Level INFO
+
+# Display critical errors if any
 if ($RemediationResults.CriticalErrors.Count -gt 0) {
     Write-Log "CRITICAL ERROR DETAILS:" -Level ERROR
     foreach ($cError in $RemediationResults.CriticalErrors) {
-        Write-Log "  - $cError" -Level ERROR
+        Write-Log "  * $cError" -Level ERROR
     }
+    Write-Log "" -Level INFO
 }
 
-# Display log file location and contents
+Write-Log "============================================" -Level INFO
+Write-Log "Log File: $logFile" -Level INFO
+Write-Log "============================================" -Level INFO
+
+# Display results to console
 Write-Output ""
 Write-Output "=========================================="
-Write-Output "Remediation Complete!"
+Write-Output "REMEDIATION COMPLETE"
+Write-Output "=========================================="
+Write-Output ""
+Write-Output "Duration: $([math]::Round($totalDuration.TotalSeconds, 2)) seconds"
+Write-Output ""
+Write-Output "SUMMARY:"
+Write-Output "  Actions Attempted:  $($RemediationResults.Summary.TotalActionsAttempted)"
+Write-Output "  Actions Successful: $($RemediationResults.Summary.TotalActionsSuccessful)"
+Write-Output "  Actions Failed:     $($RemediationResults.Summary.TotalActionsFailed)"
+Write-Output "  Critical Errors:    $($RemediationResults.CriticalErrors.Count)"
+Write-Output ""
 Write-Output "Log File: $logFile"
 Write-Output "=========================================="
 Write-Output ""
