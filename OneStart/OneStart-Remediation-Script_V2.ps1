@@ -2168,6 +2168,9 @@ function Remove-RegistryValueByPattern {
     <#
     .SYNOPSIS
     Removes registry values matching patterns from a specific key
+    .DESCRIPTION
+    Helper function that scans a registry key for values matching
+    specified patterns and removes them with detailed tracking
     #>
     param(
         [string]$KeyPath,
@@ -2184,6 +2187,7 @@ function Remove-RegistryValueByPattern {
         $keyProperties = Get-ItemProperty -Path $KeyPath -ErrorAction Stop
         
         foreach ($pattern in $ValuePatterns) {
+            # Find matching values (exclude PowerShell meta-properties)
             $matchingValues = $keyProperties.PSObject.Properties | 
                 Where-Object { $_.Name -like $pattern -and $_.Name -notlike "PS*" }
             
@@ -2195,35 +2199,46 @@ function Remove-RegistryValueByPattern {
                 Write-Log "    [FOUND] $KeyPath\$valueName = $valueData" -Level WARNING
                 
                 try {
+                    # Attempt removal
                     Remove-ItemProperty -Path $KeyPath -Name $valueName -ErrorAction Stop
+                    Start-Sleep -Milliseconds 200
                     
+                    # Verify removal
                     $checkValue = Get-ItemProperty -Path $KeyPath -Name $valueName -ErrorAction SilentlyContinue
+                    
                     if (-not $checkValue) {
                         Write-Log "    [SUCCESS] Removed: $valueName" -Level SUCCESS
                         
                         $record = New-RegistryRecord -KeyPath $KeyPath -ValueName $valueName `
-                            -Status "REMOVED" -ValueData $valueData
+                            -Status $StatusLevels.Success -ValueData $valueData
                         $RemediationResults.Registry.Removed += $record
                         $RemediationResults.Summary.RegistryValuesRemoved++
                         $removedCount++
+                        
                     } else {
                         Write-Log "    [FAILED] Still exists: $valueName" -Level ERROR
                         
                         $record = New-RegistryRecord -KeyPath $KeyPath -ValueName $valueName `
-                            -Status "FAILED" -ValueData $valueData -ErrorMessage "Value still exists after removal"
+                            -Status $StatusLevels.Failed -ValueData $valueData `
+                            -ErrorMessage "Value still exists after removal"
                         $RemediationResults.Registry.Failed += $record
                         $RemediationResults.Summary.RegistryValuesFailed++
                     }
+                    
                 } catch {
-                    Write-Log "    [ERROR] Failed to remove $valueName : $($_.Exception.Message)" -Level ERROR
+                    $errorMsg = $_.Exception.Message
+                    Write-Log "    [ERROR] Failed to remove $valueName : $errorMsg" -Level ERROR
                     
                     $record = New-RegistryRecord -KeyPath $KeyPath -ValueName $valueName `
-                        -Status "ERROR" -ValueData $valueData -ErrorMessage $_.Exception.Message
+                        -Status $StatusLevels.Error -ValueData $valueData -ErrorMessage $errorMsg
                     $RemediationResults.Registry.Errored += $record
                     $RemediationResults.Summary.RegistryValuesErrored++
+                    
+                    $RemediationResults.CriticalErrors += "Registry Value: $KeyPath\$valueName - $errorMsg"
                 }
             }
         }
+        
     } catch {
         Write-Log "    [ERROR] Cannot access key: $($_.Exception.Message)" -Level ERROR
     }
@@ -2235,6 +2250,13 @@ function Remove-MalwareRegistryPersistence {
     <#
     .SYNOPSIS
     Removes malware persistence from registry Run keys and RegisteredApplications
+    .DESCRIPTION
+    Scans and removes persistence mechanisms including:
+    - HKLM Run/RunOnce keys (system-wide autostart)
+    - Per-user Run/RunOnce keys (user-specific autostart)
+    - RegisteredApplications (Start Menu integration)
+    - Feature Usage tracking (optional cleanup)
+    Tracks timing, success/failure rates, and detailed removal status
     #>
     
     param(
@@ -2248,14 +2270,33 @@ function Remove-MalwareRegistryPersistence {
         [array]$FeatureUsagePatterns = @()
     )
     
+    # Module timing start
+    $moduleStartTime = Get-Date
+    
     Write-Log "========================================" -Level INFO
     Write-Log "REGISTRY PERSISTENCE REMOVAL MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
+    Write-Log "Run Key Patterns: $($RunKeyPatterns.Count)" -Level INFO
+    Write-Log "Registered App Patterns: $($RegisteredAppPatterns.Count)" -Level INFO
+    if ($FeatureUsagePatterns.Count -gt 0) {
+        Write-Log "Feature Usage Patterns: $($FeatureUsagePatterns.Count)" -Level INFO
+    }
     
     $totalRemoved = 0
+    $phaseResults = @{
+        HKLMRun = 0
+        UserRun = 0
+        HKLMRegApps = 0
+        UserRegApps = 0
+        FeatureUsage = 0
+    }
     
+    # ========================================================================
+    # PHASE 1: HKLM Run Keys (System-wide Autostart)
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
     Write-Log "Phase 1: Checking HKLM Run keys..." -Level INFO
-    $RemediationResults.Summary.RegistryKeysChecked++
     
     $hklmRunKeys = @(
         "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -2265,19 +2306,32 @@ function Remove-MalwareRegistryPersistence {
     )
     
     foreach ($keyPath in $hklmRunKeys) {
+        $RemediationResults.Summary.RegistryKeysChecked++
         Write-Log "  Checking: $keyPath" -Level INFO
+        
         $removed = Remove-RegistryValueByPattern -KeyPath $keyPath -ValuePatterns $RunKeyPatterns
+        $phaseResults.HKLMRun += $removed
         $totalRemoved += $removed
     }
     
+    Write-Log "  Phase 1 Complete: Removed $($phaseResults.HKLMRun) HKLM Run entries" -Level INFO
+    
+    # ========================================================================
+    # PHASE 2: Per-User Run Keys (User-specific Autostart)
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
     Write-Log "Phase 2: Checking per-user Run keys..." -Level INFO
     
     $userSIDs = Get-UserSIDs
     Write-Log "  Found $($userSIDs.Count) user profile(s)" -Level INFO
     
+    if ($userSIDs.Count -eq 0) {
+        Write-Log "  [WARNING] No user SIDs found - skipping per-user Run keys" -Level WARNING
+    }
+    
     foreach ($sid in $userSIDs) {
         Write-Log "  Processing SID: $sid" -Level INFO
-        $RemediationResults.Summary.RegistryKeysChecked++
         
         $hkuRunKeys = @(
             "Registry::HKU\$sid\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -2285,31 +2339,58 @@ function Remove-MalwareRegistryPersistence {
         )
         
         foreach ($keyPath in $hkuRunKeys) {
+            $RemediationResults.Summary.RegistryKeysChecked++
             $removed = Remove-RegistryValueByPattern -KeyPath $keyPath -ValuePatterns $RunKeyPatterns
+            $phaseResults.UserRun += $removed
             $totalRemoved += $removed
         }
     }
     
-    Write-Log "Phase 3: Checking RegisteredApplications..." -Level INFO
+    Write-Log "  Phase 2 Complete: Removed $($phaseResults.UserRun) user Run entries" -Level INFO
+    
+    # ========================================================================
+    # PHASE 3: HKLM RegisteredApplications (System Start Menu Integration)
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 3: Checking HKLM RegisteredApplications..." -Level INFO
     
     $hklmRegApps = "HKLM:\Software\RegisteredApplications"
-    Write-Log "  Checking: $hklmRegApps" -Level INFO
     $RemediationResults.Summary.RegistryKeysChecked++
+    Write-Log "  Checking: $hklmRegApps" -Level INFO
+    
     $removed = Remove-RegistryValueByPattern -KeyPath $hklmRegApps -ValuePatterns $RegisteredAppPatterns
+    $phaseResults.HKLMRegApps += $removed
     $totalRemoved += $removed
+    
+    Write-Log "  Phase 3 Complete: Removed $($phaseResults.HKLMRegApps) HKLM RegisteredApp entries" -Level INFO
+    
+    # ========================================================================
+    # PHASE 4: Per-User RegisteredApplications (User Start Menu Integration)
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 4: Checking per-user RegisteredApplications..." -Level INFO
     
     foreach ($sid in $userSIDs) {
         $hkuRegApps = "Registry::HKU\$sid\Software\RegisteredApplications"
         $RemediationResults.Summary.RegistryKeysChecked++
+        
         $removed = Remove-RegistryValueByPattern -KeyPath $hkuRegApps -ValuePatterns $RegisteredAppPatterns
+        $phaseResults.UserRegApps += $removed
         $totalRemoved += $removed
     }
-    Write-Log "Phase 4: Feature Usage Tracking" -Level INFO
-
-    if ($MalwareConfig.FeatureUsagePatterns.Count -gt 0) {
-        Write-Log "Phase 4: Checking Explorer Feature Usage..." -Level INFO
+    
+    Write-Log "  Phase 4 Complete: Removed $($phaseResults.UserRegApps) user RegisteredApp entries" -Level INFO
+    
+    # ========================================================================
+    # PHASE 5: Feature Usage Tracking (Optional Cleanup)
+    # ========================================================================
+    
+    if ($FeatureUsagePatterns.Count -gt 0) {
+        Write-Log "" -Level INFO
+        Write-Log "Phase 5: Checking Explorer Feature Usage..." -Level INFO
         
-        $userSIDs = Get-UserSIDs
         foreach ($sid in $userSIDs) {
             $featureUsagePaths = @(
                 "Registry::HKU\$sid\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppBadgeUpdated",
@@ -2318,23 +2399,45 @@ function Remove-MalwareRegistryPersistence {
             
             foreach ($keyPath in $featureUsagePaths) {
                 if (Test-Path $keyPath) {
+                    $RemediationResults.Summary.RegistryKeysChecked++
                     $removed = Remove-RegistryValueByPattern -KeyPath $keyPath -ValuePatterns $FeatureUsagePatterns
+                    $phaseResults.FeatureUsage += $removed
                     $totalRemoved += $removed
                 }
             }
         }
+        
+        Write-Log "  Phase 5 Complete: Removed $($phaseResults.FeatureUsage) Feature Usage entries" -Level INFO
     }
     
+    # ========================================================================
+    # MODULE TIMING & SUMMARY
+    # ========================================================================
+    
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "RegistryPersistence" -StartTime $moduleStartTime -EndTime $moduleEndTime
+    
+    Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "REGISTRY PERSISTENCE REMOVAL SUMMARY" -Level INFO
     Write-Log "  Keys Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
     Write-Log "  Values Found: $($RemediationResults.Summary.RegistryValuesFound)" -Level INFO
+    Write-Log "  ---" -Level INFO
+    Write-Log "  Phase Breakdown:" -Level INFO
+    Write-Log "    HKLM Run Keys: $($phaseResults.HKLMRun)" -Level INFO
+    Write-Log "    User Run Keys: $($phaseResults.UserRun)" -Level INFO
+    Write-Log "    HKLM RegisteredApps: $($phaseResults.HKLMRegApps)" -Level INFO
+    Write-Log "    User RegisteredApps: $($phaseResults.UserRegApps)" -Level INFO
+    if ($FeatureUsagePatterns.Count -gt 0) {
+        Write-Log "    Feature Usage: $($phaseResults.FeatureUsage)" -Level INFO
+    }
+    Write-Log "  ---" -Level INFO
     Write-Log "  Values Removed: $($RemediationResults.Summary.RegistryValuesRemoved)" -Level SUCCESS
     Write-Log "  Values Failed: $($RemediationResults.Summary.RegistryValuesFailed)" -Level ERROR
     Write-Log "  Values Errored: $($RemediationResults.Summary.RegistryValuesErrored)" -Level ERROR
+    Write-Log "  Values Not Found: $($RemediationResults.Summary.RegistryValuesNotFound)" -Level INFO
     Write-Log "========================================" -Level INFO
 }
-
 
 # ============================================================================ #
 # FILE & FOLDER CLEANUP
