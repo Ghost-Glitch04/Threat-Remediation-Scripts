@@ -565,41 +565,6 @@ function Write-Log {
 }
 
 # ============================================================================ #
-# HELPER FUNCTIONS - General - TimedModule
-# ============================================================================ #
-
-function Invoke-TimedModule {
-    <#
-    .SYNOPSIS
-    Executes a module and tracks its execution time
-    #>
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$ModuleName,
-        
-        [Parameter(Mandatory=$true)]
-        [scriptblock]$ScriptBlock
-    )
-    
-    Write-Log "Starting module: $ModuleName" -Level INFO
-    $startTime = Get-Date
-    
-    try {
-        & $ScriptBlock
-        $endTime = Get-Date
-        $duration = ($endTime - $startTime).TotalSeconds
-        $RemediationResults.ModuleTiming[$ModuleName] = $duration
-        Write-Log "Module '$ModuleName' completed in $duration seconds" -Level INFO
-    } catch {
-        $endTime = Get-Date
-        $duration = ($endTime - $startTime).TotalSeconds
-        $RemediationResults.ModuleTiming[$ModuleName] = $duration
-        Write-Log "Module '$ModuleName' failed after $duration seconds: $($_.Exception.Message)" -Level ERROR
-        throw
-    }
-}
-
-# ============================================================================ #
 # HELPER FUNCTIONS - Processes
 # ============================================================================ #
 
@@ -682,6 +647,31 @@ function Get-ServiceDetails {
             CanStop = $false
         }
     }
+}
+
+# ============================================================================ #
+# HELPER FUNCTIONS - General - Module Timing
+# ============================================================================ #
+
+function Write-ModuleTiming {
+    <#
+    .SYNOPSIS
+    Records module execution time in results tracking
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ModuleName,
+        
+        [Parameter(Mandatory=$true)]
+        [datetime]$StartTime,
+        
+        [Parameter(Mandatory=$true)]
+        [datetime]$EndTime
+    )
+    
+    $duration = ($EndTime - $StartTime).TotalSeconds
+    $RemediationResults.ModuleTiming[$ModuleName] = $duration
+    Write-Log "Module '$ModuleName' completed in $duration seconds" -Level INFO
 }
 
 # ============================================================================ #
