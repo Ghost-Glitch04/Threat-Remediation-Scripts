@@ -3472,31 +3472,42 @@ function Remove-MalwareFileAssociations {
         [array]$AssociationPatterns
     )
     
+    # Start timing
+    $moduleStartTime = Get-Date
+    
     Write-Log "========================================" -Level INFO
     Write-Log "FILE ASSOCIATION CLEANUP MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "Removes orphaned ApplicationAssociationToasts entries" -Level INFO
-    
-    $totalRemoved = 0
-    $totalFound = 0
+    Write-Log "Target patterns: $($AssociationPatterns.Count)" -Level INFO
+    Write-Log "" -Level INFO
     
     $userSIDs = Get-UserSIDs
-    Write-Log "  Found $($userSIDs.Count) user profile(s)" -Level INFO
+    Write-Log "Found $($userSIDs.Count) user profile(s)" -Level INFO
+    Write-Log "" -Level INFO
     
     foreach ($sid in $userSIDs) {
-        Write-Log "  Processing SID: $sid" -Level INFO
+        Write-Log "Processing SID: $sid" -Level INFO
         
         $assocPath = "Registry::HKU\$sid\Software\Microsoft\Windows\CurrentVersion\ApplicationAssociationToasts"
         
+        $RemediationResults.Summary.FileAssociationsChecked++
+        
         if (-not (Test-Path $assocPath)) {
-            Write-Log "    [NOT FOUND] ApplicationAssociationToasts key does not exist" -Level INFO
+            Write-Log "  [NOT FOUND] ApplicationAssociationToasts key does not exist" -Level INFO
+            
+            $record = New-RegistryRecord -KeyPath $assocPath -ValueName "N/A" `
+                -Status $StatusLevels.NotFound
+            $RemediationResults.FileAssociations.NotFound += $record
+            $RemediationResults.Summary.FileAssociationsNotFound++
             continue
         }
         
-        $RemediationResults.Summary.RegistryKeysChecked++
+        Write-Log "  Scanning: $assocPath" -Level INFO
         
         try {
             $properties = Get-ItemProperty -Path $assocPath -ErrorAction Stop
+            $matchedInThisKey = $false
             
             foreach ($pattern in $AssociationPatterns) {
                 $matchingValues = $properties.PSObject.Properties | 
@@ -3505,51 +3516,86 @@ function Remove-MalwareFileAssociations {
                 foreach ($value in $matchingValues) {
                     $valueName = $value.Name
                     $valueData = $value.Value
-                    $totalFound++
                     
-                    Write-Log "    [FOUND] Association: $valueName = $valueData" -Level WARNING
+                    $matchedInThisKey = $true
+                    $RemediationResults.Summary.FileAssociationsFound++
+                    
+                    Write-Log "    [FOUND] $valueName = $valueData" -Level WARNING
                     
                     try {
                         Remove-ItemProperty -Path $assocPath -Name $valueName -ErrorAction Stop
+                        Start-Sleep -Milliseconds 200
                         
                         $checkValue = Get-ItemProperty -Path $assocPath -Name $valueName -ErrorAction SilentlyContinue
+                        
                         if (-not $checkValue) {
                             Write-Log "    [SUCCESS] Removed: $valueName" -Level SUCCESS
                             
                             $record = New-RegistryRecord -KeyPath $assocPath -ValueName $valueName `
-                                -Status "REMOVED" -ValueData $valueData
-                            $RemediationResults.Registry.Removed += $record
-                            $RemediationResults.Summary.RegistryValuesRemoved++
-                            $totalRemoved++
+                                -Status $StatusLevels.Success -ValueData $valueData
+                            $RemediationResults.FileAssociations.Removed += $record
+                            $RemediationResults.Summary.FileAssociationsRemoved++
+                            
                         } else {
                             Write-Log "    [FAILED] Still exists: $valueName" -Level ERROR
                             
                             $record = New-RegistryRecord -KeyPath $assocPath -ValueName $valueName `
-                                -Status "FAILED" -ValueData $valueData -ErrorMessage "Value still exists"
-                            $RemediationResults.Registry.Failed += $record
-                            $RemediationResults.Summary.RegistryValuesFailed++
+                                -Status $StatusLevels.Failed -ValueData $valueData `
+                                -ErrorMessage "Value still exists after removal"
+                            $RemediationResults.FileAssociations.Failed += $record
+                            $RemediationResults.Summary.FileAssociationsFailed++
                         }
+                        
                     } catch {
                         $errorMsg = $_.Exception.Message
                         Write-Log "    [ERROR] Failed to remove $valueName : $errorMsg" -Level ERROR
                         
                         $record = New-RegistryRecord -KeyPath $assocPath -ValueName $valueName `
-                            -Status "ERROR" -ValueData $valueData -ErrorMessage $errorMsg
-                        $RemediationResults.Registry.Errored += $record
-                        $RemediationResults.Summary.RegistryValuesErrored++
+                            -Status $StatusLevels.Error -ValueData $valueData -ErrorMessage $errorMsg
+                        $RemediationResults.FileAssociations.Errored += $record
+                        $RemediationResults.Summary.FileAssociationsErrored++
+                        
+                        $RemediationResults.CriticalErrors += "FileAssociation: $valueName - $errorMsg"
                     }
                 }
             }
+            
+            if (-not $matchedInThisKey) {
+                Write-Log "  [NOT FOUND] No matching associations in this key" -Level INFO
+                
+                $record = New-RegistryRecord -KeyPath $assocPath -ValueName "N/A" `
+                    -Status $StatusLevels.NotFound
+                $RemediationResults.FileAssociations.NotFound += $record
+                $RemediationResults.Summary.FileAssociationsNotFound++
+            }
+            
         } catch {
-            Write-Log "    [ERROR] Cannot access ApplicationAssociationToasts: $($_.Exception.Message)" -Level ERROR
+            $errorMsg = $_.Exception.Message
+            Write-Log "  [ERROR] Cannot access ApplicationAssociationToasts: $errorMsg" -Level ERROR
+            
+            $record = New-RegistryRecord -KeyPath $assocPath -ValueName "N/A" `
+                -Status $StatusLevels.Error -ErrorMessage $errorMsg
+            $RemediationResults.FileAssociations.Errored += $record
+            $RemediationResults.Summary.FileAssociationsErrored++
+            
+            $RemediationResults.CriticalErrors += "FileAssociation Key: $assocPath - $errorMsg"
         }
     }
     
+    # End timing
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "FileAssociations" -StartTime $moduleStartTime -EndTime $moduleEndTime
+    
+    Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "FILE ASSOCIATION CLEANUP SUMMARY" -Level INFO
-    Write-Log "  Keys Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
-    Write-Log "  Associations Found: $totalFound" -Level INFO
-    Write-Log "  Associations Removed: $totalRemoved" -Level SUCCESS
+    Write-Log "  Keys Checked: $($RemediationResults.Summary.FileAssociationsChecked)" -Level INFO
+    Write-Log "  Associations Found: $($RemediationResults.Summary.FileAssociationsFound)" -Level INFO
+    Write-Log "  Associations Removed: $($RemediationResults.Summary.FileAssociationsRemoved)" -Level SUCCESS
+    Write-Log "  Associations Failed: $($RemediationResults.Summary.FileAssociationsFailed)" -Level ERROR
+    Write-Log "  Associations Errored: $($RemediationResults.Summary.FileAssociationsErrored)" -Level ERROR
+    Write-Log "  Associations Not Found: $($RemediationResults.Summary.FileAssociationsNotFound)" -Level INFO
+    Write-Log "  ---" -Level INFO
     Write-Log "  Note: Clears orphaned file association prompts" -Level INFO
     Write-Log "========================================" -Level INFO
 }
