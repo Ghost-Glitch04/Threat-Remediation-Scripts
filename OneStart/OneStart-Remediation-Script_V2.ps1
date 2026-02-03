@@ -305,6 +305,8 @@ $RemediationResults = @{
         Failed = @()
         Errored = @()
         Flagged = @()  # Suspicious but not removed
+        Protected = @()  # Items we WON'T remove (by design)
+        Noted = @()  # UserChoice entries (protected by Windows)
     }
 
     # ----------------------------------------------------------------------------
@@ -350,6 +352,26 @@ $RemediationResults = @{
         Failed = @()
         Errored = @()
     }
+
+    # ----------------------------------------------------------------------------
+    # RESULTS TRACKING - Browser Entries
+    # ----------------------------------------------------------------------------
+
+    # Detailed browser entry tracking
+    BrowserEntries = @{
+        NotFound = @()
+        Removed = @()
+        Failed = @()
+        Errored = @()
+        Noted = @()  # For UserChoice protected entries
+        Protected = @()  # Items we WON'T remove (by design)
+    }
+
+    # ----------------------------------------------------------------------------
+    # RESULTS TRACKING - File Associations tracking
+    # ----------------------------------------------------------------------------
+
+
 
     # ----------------------------------------------------------------------------
     # RESULTS TRACKING - Failed Actions
@@ -462,7 +484,7 @@ $RemediationResults = @{
         BrowserEntriesFailed = 0
 
         # ----------------------------------------------------------------------------
-        # SUMMARY STATS - Files Associations
+        # SUMMARY STATS - File Associations
         # ----------------------------------------------------------------------------
 
         FileAssociationsChecked = 0
@@ -470,7 +492,7 @@ $RemediationResults = @{
         FileAssociationsFailed = 0
 
         # ----------------------------------------------------------------------------
-        # SUMMARY STATS - Overall Actions Performed
+        # SUMMARY STATS - Overall Summary of Actions Performed
         # ----------------------------------------------------------------------------
 
         # Overall totals (calculated at end)
