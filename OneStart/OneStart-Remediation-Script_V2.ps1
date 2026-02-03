@@ -1092,7 +1092,8 @@ function New-BrowserRecord {
         [string]$EntryPath,
         [string]$EntryType,
         [string]$Status,
-        [string]$ErrorMessage = $null
+        [string]$ErrorMessage = $null,
+        [hashtable]$Details = @{}
     )
     
     return @{
@@ -1101,6 +1102,67 @@ function New-BrowserRecord {
         Status = $Status
         Timestamp = Get-Date
         ErrorMessage = $ErrorMessage
+        Details = $Details
+    }
+}
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Browser Entries - Remove-BrowserEntry
+# ============================================================================ #
+
+function Remove-BrowserEntry {
+    <#
+    .SYNOPSIS
+    Removes a browser registry entry with detailed tracking
+    #>
+    param(
+        [string]$KeyPath,
+        [string]$EntryType
+    )
+    
+    if (-not (Test-Path $KeyPath)) {
+        return "NOT_FOUND"
+    }
+    
+    try {
+        # Capture details before removal
+        $keyDetails = Get-RegistryKeyDetails -KeyPath $KeyPath
+        
+        Write-Log "    [FOUND] $EntryType : $KeyPath" -Level WARNING
+        Write-Log "      Subkeys: $($keyDetails.SubkeyCount) | Values: $($keyDetails.ValueCount)" -Level INFO
+        
+        Remove-Item -Path $KeyPath -Recurse -Force -ErrorAction Stop
+        Start-Sleep -Milliseconds 200
+        
+        if (-not (Test-Path $KeyPath)) {
+            Write-Log "    [SUCCESS] Removed: $KeyPath" -Level SUCCESS
+            
+            $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
+                -Status $StatusLevels.Success -Details $keyDetails
+            $RemediationResults.BrowserEntries.Removed += $record
+            $RemediationResults.Summary.BrowserEntriesRemoved++
+            return "SUCCESS"
+        } else {
+            Write-Log "    [FAILED] Still exists: $KeyPath" -Level ERROR
+            
+            $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
+                -Status $StatusLevels.Failed -ErrorMessage "Key still exists after removal" `
+                -Details $keyDetails
+            $RemediationResults.BrowserEntries.Failed += $record
+            $RemediationResults.Summary.BrowserEntriesFailed++
+            return "FAILED"
+        }
+    } catch {
+        $errorMsg = $_.Exception.Message
+        Write-Log "    [ERROR] Failed to remove: $errorMsg" -Level ERROR
+        
+        $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
+            -Status $StatusLevels.Error -ErrorMessage $errorMsg
+        $RemediationResults.BrowserEntries.Errored += $record
+        $RemediationResults.Summary.BrowserEntriesErrored++
+        
+        $RemediationResults.CriticalErrors += "Browser Entry: $KeyPath - $errorMsg"
+        return "ERROR"
     }
 }
 
@@ -1136,7 +1198,11 @@ function New-FileAssociationRecord {
 # ============================================================================ #
 
 # ============================================================================ #
-# PROCESS TERMINATION
+#  PRIMARY FUNCTIONS - PROCESS TERMINATION
+# ============================================================================ #
+
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - PROCESS TERMINATION - Stop-MalwareProcess
 # ============================================================================ #
 
 function Stop-MalwareProcess {
@@ -1244,9 +1310,12 @@ function Stop-MalwareProcess {
     Write-Log "  Not Found: $($RemediationResults.Summary.ProcessesNotFound)" -Level INFO
     Write-Log "========================================" -Level INFO
 }
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - SERVICE REMEDIATION
+# ============================================================================ #
 
 # ============================================================================ #
-# SERVICE REMEDIATION
+#  PRIMARY FUNCTIONS - SERVICE REMEDIATION - Stop-MalwareService
 # ============================================================================ #
 
 function Stop-MalwareService {
@@ -1422,7 +1491,11 @@ function Stop-MalwareService {
 }
 
 # ============================================================================ #
-# CERTIFICATE ANALYSIS & REMEDIATION (ENHANCED)
+# PRIMARY FUNCTIONS - CERTIFICATE ANALYSIS & REMEDIATION
+# ============================================================================ #
+
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - CERTIFICATE ANALYSIS & REMEDIATION - Test-ProtectedCertificate
 # ============================================================================ #
 
 function Test-ProtectedCertificate {
@@ -1453,6 +1526,10 @@ function Test-ProtectedCertificate {
         Keyword = $null
     }
 }
+
+# ============================================================================ #
+# PRIMARY FUNCTIONS - CERTIFICATE ANALYSIS & REMEDIATION - Remove-MalwareCertificates
+# ============================================================================ #
 
 function Remove-MalwareCertificates {
     <#
@@ -1852,7 +1929,11 @@ function Remove-MalwareCertificates {
 }
 
 # ============================================================================ #
-# SCHEDULED TASK REMEDIATION
+#  PRIMARY FUNCTIONS - SCHEDULED TASK REMEDIATION
+# ============================================================================ #
+
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - SCHEDULED TASK REMEDIATION - Remove-MalwareTask
 # ============================================================================ #
 
 function Remove-MalwareTask {
@@ -2026,6 +2107,10 @@ function Remove-MalwareTask {
     Write-Log "========================================" -Level INFO
 }
 
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - SCHEDULED TASK REMEDIATION - Remove-TaskCacheOrphans
+# ============================================================================ #
+
 function Remove-TaskCacheOrphans {
     <#
     .SYNOPSIS
@@ -2161,7 +2246,11 @@ function Remove-TaskCacheOrphans {
 }
 
 # ============================================================================ #
-# REGISTRY PERSISTENCE REMOVAL
+#  PRIMARY FUNCTIONS - REGISTRY PERSISTENCE REMOVAL
+# ============================================================================ #
+
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - REGISTRY PERSISTENCE REMOVAL - Remove-MalwareRegistryPersistence
 # ============================================================================ #
 
 function Remove-RegistryValueByPattern {
@@ -2245,6 +2334,10 @@ function Remove-RegistryValueByPattern {
     
     return $removedCount
 }
+
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - REGISTRY PERSISTENCE REMOVAL - Remove-MalwareRegistryPersistence
+# ============================================================================ #
 
 function Remove-MalwareRegistryPersistence {
     <#
@@ -2440,7 +2533,11 @@ function Remove-MalwareRegistryPersistence {
 }
 
 # ============================================================================ #
-# FILE & FOLDER CLEANUP
+# PRIMARY FUNCTIONS - FILE & FOLDER CLEANUP
+# ============================================================================ #
+
+# ============================================================================ #
+# PRIMARY FUNCTIONS - FILE & FOLDER CLEANUP - Remove-PathItem
 # ============================================================================ #
 
 function Remove-PathItem {
@@ -2526,6 +2623,10 @@ function Remove-PathItem {
         return $StatusLevels.Error
     }
 }
+
+# ============================================================================ #
+# PRIMARY FUNCTIONS - FILE & FOLDER CLEANUP - Remove-MalwareFiles
+# ============================================================================ #
 
 function Remove-MalwareFiles {
     <#
@@ -2793,7 +2894,11 @@ function Remove-MalwareFiles {
 }
 
 # ============================================================================ #
-# REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION)
+#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION)
+# ============================================================================ #
+
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION) - Remove-RegistryKeyRecursive
 # ============================================================================ #
 
 function Remove-RegistryKeyRecursive {
@@ -2859,6 +2964,10 @@ function Remove-RegistryKeyRecursive {
         return "ERROR"
     }
 }
+
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION) - Remove-MalwareRegistryKeys
+# ============================================================================ #
 
 function Remove-MalwareRegistryKeys {
     <#
@@ -3111,7 +3220,11 @@ function Remove-MalwareRegistryKeys {
 }
 
 # ============================================================================ #
-# BROWSER ENTRY CLEANUP
+#  PRIMARY FUNCTIONS - BROWSER ENTRY CLEANUP
+# ============================================================================ #
+
+# ============================================================================ #
+# PRIMARY FUNCTIONS - BROWSER ENTRY CLEANUP - Remove-BrowserEntry
 # ============================================================================ #
 
 function Remove-BrowserEntry {
@@ -3173,10 +3286,19 @@ function Remove-BrowserEntry {
     }
 }
 
+# ============================================================================ #
+# PRIMARY FUNCTIONS - BROWSER ENTRY CLEANUP - Remove-MalwareBrowserEntries
+# ============================================================================ #
+
 function Remove-MalwareBrowserEntries {
     <#
     .SYNOPSIS
     Removes browser hijacking registry entries
+    .DESCRIPTION
+    Cleans up:
+    - StartMenuInternet registrations (HKLM and per-user)
+    - ProgID classes (HKLM\Software\Classes and per-user)
+    - UserChoice associations (noted but not removed - Windows protected)
     #>
     
     param(
@@ -3187,17 +3309,19 @@ function Remove-MalwareBrowserEntries {
         [array]$FeatureUsagePatterns = @()
     )
     
-    $moduleStart = Get-Date
+    $moduleStartTime = Get-Date
     
     Write-Log "========================================" -Level INFO
     Write-Log "BROWSER ENTRY CLEANUP MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "Removes browser hijacking to prevent false inventory detections" -Level INFO
+    Write-Log "Target patterns: $($BrowserPatterns.Count)" -Level INFO
     
     # ========================================================================
-    # PHASE 1: HKLM StartMenuInternet Entries
+    # PHASE 1: HKLM StartMenuInternet Registrations
     # ========================================================================
     
+    Write-Log "" -Level INFO
     Write-Log "Phase 1: Removing HKLM StartMenuInternet entries..." -Level INFO
     
     $hklmBrowserPath = "HKLM:\Software\Clients\StartMenuInternet"
@@ -3208,15 +3332,15 @@ function Remove-MalwareBrowserEntries {
                 Where-Object { $_.PSChildName -like $pattern }
             
             if ($matchingKeys) {
-                Write-Log "  Found $($matchingKeys.Count) HKLM browser registration(s)" -Level WARNING
+                Write-Log "  Found $($matchingKeys.Count) HKLM browser registration(s) matching '$pattern'" -Level WARNING
                 foreach ($key in $matchingKeys) {
                     $RemediationResults.Summary.BrowserEntriesChecked++
                     $RemediationResults.Summary.BrowserEntriesFound++
                     
-                    $null = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM Browser Registration"
+                    $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM Browser Registration"
                 }
             } else {
-                Write-Log "  [NOT FOUND] No HKLM browser registrations match" -Level INFO
+                Write-Log "  [NOT FOUND] No HKLM browser registrations match '$pattern'" -Level INFO
             }
         }
     } else {
@@ -3224,9 +3348,10 @@ function Remove-MalwareBrowserEntries {
     }
     
     # ========================================================================
-    # PHASE 2: Per-User StartMenuInternet Entries
+    # PHASE 2: Per-User StartMenuInternet Registrations
     # ========================================================================
     
+    Write-Log "" -Level INFO
     Write-Log "Phase 2: Removing per-user StartMenuInternet entries..." -Level INFO
     
     $userSIDs = Get-UserSIDs
@@ -3248,7 +3373,7 @@ function Remove-MalwareBrowserEntries {
                         $RemediationResults.Summary.BrowserEntriesChecked++
                         $RemediationResults.Summary.BrowserEntriesFound++
                         
-                        $null = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "User Browser Registration"
+                        $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "User Browser Registration"
                     }
                 }
             }
@@ -3256,12 +3381,32 @@ function Remove-MalwareBrowserEntries {
     }
     
     # ========================================================================
-    # PHASE 3: ProgID Classes
+    # PHASE 3: ProgID Classes (HKLM and Per-User)
     # ========================================================================
     
+    Write-Log "" -Level INFO
     Write-Log "Phase 3: Removing ProgID classes..." -Level INFO
     
-    # Per-user ProgID classes
+    # HKLM ProgID Classes
+    $hklmClassesPath = "HKLM:\Software\Classes"
+    if (Test-Path $hklmClassesPath) {
+        foreach ($pattern in $BrowserPatterns) {
+            $matchingKeys = Get-ChildItem $hklmClassesPath -ErrorAction SilentlyContinue |
+                Where-Object { $_.PSChildName -like $pattern }
+            
+            if ($matchingKeys) {
+                Write-Log "  Found $($matchingKeys.Count) HKLM ProgID class(es)" -Level WARNING
+                foreach ($key in $matchingKeys) {
+                    $RemediationResults.Summary.BrowserEntriesChecked++
+                    $RemediationResults.Summary.BrowserEntriesFound++
+                    
+                    $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM ProgID Class"
+                }
+            }
+        }
+    }
+    
+    # Per-User ProgID Classes
     foreach ($sid in $userSIDs) {
         $hkuClassesPath = "Registry::HKU\$sid\Software\Classes"
         
@@ -3276,38 +3421,22 @@ function Remove-MalwareBrowserEntries {
                         $RemediationResults.Summary.BrowserEntriesChecked++
                         $RemediationResults.Summary.BrowserEntriesFound++
                         
-                        $null = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "User ProgID Class"
+                        $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "User ProgID Class"
                     }
                 }
             }
         }
     }
     
-    # HKLM ProgID classes
-    $hklmClassesPath = "HKLM:\Software\Classes"
-    if (Test-Path $hklmClassesPath) {
-        foreach ($pattern in $BrowserPatterns) {
-            $matchingKeys = Get-ChildItem $hklmClassesPath -ErrorAction SilentlyContinue |
-                Where-Object { $_.PSChildName -like $pattern }
-            
-            if ($matchingKeys) {
-                Write-Log "  Found $($matchingKeys.Count) HKLM ProgID class(es)" -Level WARNING
-                foreach ($key in $matchingKeys) {
-                    $RemediationResults.Summary.BrowserEntriesChecked++
-                    $RemediationResults.Summary.BrowserEntriesFound++
-                    
-                    $null = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM ProgID Class"
-                }
-            }
-        }
-    }
-    
     # ========================================================================
-    # PHASE 4: UserChoice Associations (Protected)
+    # PHASE 4: UserChoice Associations (PROTECTED - REPORT ONLY)
     # ========================================================================
     
     if ($FeatureUsagePatterns.Count -gt 0) {
+        Write-Log "" -Level INFO
         Write-Log "Phase 4: Checking UserChoice associations..." -Level INFO
+        Write-Log "  Note: UserChoice keys are hash-protected by Windows" -Level INFO
+        Write-Log "  These entries will be reported but NOT removed" -Level INFO
         
         foreach ($sid in $userSIDs) {
             $userChoicePath = "Registry::HKU\$sid\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts"
@@ -3326,13 +3455,21 @@ function Remove-MalwareBrowserEntries {
                                 foreach ($pattern in $BrowserPatterns) {
                                     if ($progId -like $pattern) {
                                         $RemediationResults.Summary.BrowserEntriesChecked++
+                                        $RemediationResults.Summary.BrowserEntriesFound++
                                         
                                         Write-Log "    [FOUND] UserChoice for $($ext.PSChildName) : $progId" -Level WARNING
-                                        Write-Log "    [INFO] UserChoice key is hash-protected by Windows" -Level INFO
-                                        Write-Log "    [INFO] Will be reset when user changes default program" -Level INFO
+                                        Write-Log "      Status: PROTECTED (hash-protected by Windows)" -Level INFO
+                                        Write-Log "      Action: REPORT ONLY - Will reset when user changes default" -Level INFO
+                                        
+                                        $details = @{
+                                            Extension = $ext.PSChildName
+                                            ProgId = $progId
+                                            Protection = "Windows UserChoice Hash"
+                                        }
                                         
                                         $record = New-BrowserRecord -EntryPath $userChoiceKey `
-                                            -EntryType "UserChoice (Protected)" -Status $StatusLevels.Protected
+                                            -EntryType "UserChoice (Protected)" -Status $StatusLevels.Protected `
+                                            -Details $details
                                         $RemediationResults.BrowserEntries.Noted += $record
                                     }
                                 }
@@ -3347,11 +3484,11 @@ function Remove-MalwareBrowserEntries {
     }
     
     # ========================================================================
-    # MODULE TIMING & SUMMARY
+    # MODULE COMPLETION & TIMING
     # ========================================================================
     
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "BrowserEntries" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "BrowserEntries" -StartTime $moduleStartTime -EndTime $moduleEndTime
     
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
@@ -3361,14 +3498,18 @@ function Remove-MalwareBrowserEntries {
     Write-Log "  Entries Removed: $($RemediationResults.Summary.BrowserEntriesRemoved)" -Level SUCCESS
     Write-Log "  Entries Failed: $($RemediationResults.Summary.BrowserEntriesFailed)" -Level ERROR
     Write-Log "  Entries Errored: $($RemediationResults.Summary.BrowserEntriesErrored)" -Level ERROR
-    Write-Log "  Entries Not Found: $($RemediationResults.Summary.BrowserEntriesNotFound)" -Level INFO
+    Write-Log "  UserChoice (Protected): $($RemediationResults.BrowserEntries.Noted.Count)" -Level INFO
     Write-Log "  Note: UserChoice keys are Windows-protected and will reset naturally" -Level INFO
     Write-Log "========================================" -Level INFO
 }
 
 
 # ============================================================================ #
-# FILE ASSOCIATION CLEANUP
+# PRIMARY FUNCTIONS - FILE ASSOCIATION CLEANUP
+# ============================================================================ #
+
+# ============================================================================ #
+# PRIMARY FUNCTIONS - FILE ASSOCIATION CLEANUP - Remove-MalwareFileAssociations
 # ============================================================================ #
 
 function Remove-MalwareFileAssociations {
