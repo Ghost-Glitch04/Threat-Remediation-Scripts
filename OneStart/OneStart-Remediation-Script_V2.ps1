@@ -1105,6 +1105,33 @@ function New-BrowserRecord {
 }
 
 # ============================================================================ #
+# HELPER FUNCTIONS - File Associations - New-FileAssociationRecord
+# ============================================================================ #
+
+function New-FileAssociationRecord {
+    <#
+    .SYNOPSIS
+    Creates a detailed file association tracking record
+    #>
+    param(
+        [string]$AssociationPath,
+        [string]$ValueName,
+        [string]$Status,
+        [string]$ValueData = $null,
+        [string]$ErrorMessage = $null
+    )
+    
+    return @{
+        AssociationPath = $AssociationPath
+        ValueName = $ValueName
+        ValueData = $ValueData
+        Status = $Status
+        Timestamp = Get-Date
+        ErrorMessage = $ErrorMessage
+    }
+}
+
+# ============================================================================ #
 # PRIMARY FUNCTIONS
 # ============================================================================ #
 
@@ -1160,7 +1187,7 @@ function Stop-MalwareProcess {
                 
                 $record = New-ProcessRecord -ProcessName $processName -Status "KILLED" `
                     -PIDs $pidList -ProcessObjects $processes
-                $RemediationResults.Processes.Killed += $record
+                $RemediationResults.Processes.Terminated += $record
                 $RemediationResults.Summary.ProcessesTerminated++
                 
             } else {
