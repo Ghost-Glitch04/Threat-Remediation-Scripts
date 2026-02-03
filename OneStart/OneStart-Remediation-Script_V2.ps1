@@ -3162,7 +3162,7 @@ function Remove-MalwareRegistryKeys {
 }
 
 # ============================================================================ #
-#  PRIMARY FUNCTIONS - BROWSER ENTRY CLEANUP
+# PRIMARY FUNCTIONS - BROWSER ENTRY CLEANUP
 # ============================================================================ #
 
 # ============================================================================ #
@@ -3179,7 +3179,14 @@ function Remove-BrowserEntry {
         [string]$EntryType
     )
     
+    $RemediationResults.Summary.BrowserEntriesChecked++
+    
     if (-not (Test-Path $KeyPath)) {
+        Write-Log "    [NOT FOUND] $EntryType : $KeyPath" -Level INFO
+        
+        $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType -Status "NOT_FOUND"
+        $RemediationResults.BrowserEntries.NotFound += $record
+        $RemediationResults.Summary.BrowserEntriesNotFound++
         return "NOT_FOUND"
     }
     
@@ -3232,7 +3239,7 @@ function Remove-MalwareBrowserEntries {
     .DESCRIPTION
     Cleans up:
     - StartMenuInternet registrations (HKLM and per-user)
-    - ProgID classes (HKLM\Software\Classes and per-user)
+    - ProgID classes that reference malicious browsers
     - UserChoice associations (noted but not removed - Windows protected)
     #>
     
@@ -3244,19 +3251,19 @@ function Remove-MalwareBrowserEntries {
         [array]$FeatureUsagePatterns = @()
     )
     
+    # Track module start time
     $moduleStartTime = Get-Date
     
     Write-Log "========================================" -Level INFO
     Write-Log "BROWSER ENTRY CLEANUP MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "Removes browser hijacking to prevent false inventory detections" -Level INFO
-    Write-Log "Target patterns: $($BrowserPatterns.Count)" -Level INFO
-    
-    # ========================================================================
-    # PHASE 1: HKLM StartMenuInternet Registrations
-    # ========================================================================
-    
     Write-Log "" -Level INFO
+    
+    # ========================================================================
+    # PHASE 1: HKLM StartMenuInternet Entries
+    # ========================================================================
+    
     Write-Log "Phase 1: Removing HKLM StartMenuInternet entries..." -Level INFO
     
     $hklmBrowserPath = "HKLM:\Software\Clients\StartMenuInternet"
@@ -3267,15 +3274,12 @@ function Remove-MalwareBrowserEntries {
                 Where-Object { $_.PSChildName -like $pattern }
             
             if ($matchingKeys) {
-                Write-Log "  Found $($matchingKeys.Count) HKLM browser registration(s) matching '$pattern'" -Level WARNING
+                Write-Log "  Found $($matchingKeys.Count) HKLM browser registration(s) matching: $pattern" -Level WARNING
                 foreach ($key in $matchingKeys) {
-                    $RemediationResults.Summary.BrowserEntriesChecked++
-                    $RemediationResults.Summary.BrowserEntriesFound++
-                    
                     $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM Browser Registration"
                 }
             } else {
-                Write-Log "  [NOT FOUND] No HKLM browser registrations match '$pattern'" -Level INFO
+                Write-Log "  [NOT FOUND] No HKLM browser registrations match: $pattern" -Level INFO
             }
         }
     } else {
@@ -3283,7 +3287,7 @@ function Remove-MalwareBrowserEntries {
     }
     
     # ========================================================================
-    # PHASE 2: Per-User StartMenuInternet Registrations
+    # PHASE 2: Per-User StartMenuInternet Entries
     # ========================================================================
     
     Write-Log "" -Level INFO
@@ -3303,46 +3307,29 @@ function Remove-MalwareBrowserEntries {
                     Where-Object { $_.PSChildName -like $pattern }
                 
                 if ($matchingKeys) {
-                    Write-Log "    Found $($matchingKeys.Count) user browser registration(s)" -Level WARNING
+                    Write-Log "    Found $($matchingKeys.Count) user browser registration(s) matching: $pattern" -Level WARNING
                     foreach ($key in $matchingKeys) {
-                        $RemediationResults.Summary.BrowserEntriesChecked++
-                        $RemediationResults.Summary.BrowserEntriesFound++
-                        
                         $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "User Browser Registration"
                     }
+                } else {
+                    Write-Log "    [NOT FOUND] No user browser registrations match: $pattern" -Level INFO
                 }
             }
+        } else {
+            Write-Log "    [NOT FOUND] User StartMenuInternet path does not exist" -Level INFO
         }
     }
     
     # ========================================================================
-    # PHASE 3: ProgID Classes (HKLM and Per-User)
+    # PHASE 3: ProgID Classes (Per-User)
     # ========================================================================
     
     Write-Log "" -Level INFO
-    Write-Log "Phase 3: Removing ProgID classes..." -Level INFO
+    Write-Log "Phase 3: Removing per-user ProgID classes..." -Level INFO
     
-    # HKLM ProgID Classes
-    $hklmClassesPath = "HKLM:\Software\Classes"
-    if (Test-Path $hklmClassesPath) {
-        foreach ($pattern in $BrowserPatterns) {
-            $matchingKeys = Get-ChildItem $hklmClassesPath -ErrorAction SilentlyContinue |
-                Where-Object { $_.PSChildName -like $pattern }
-            
-            if ($matchingKeys) {
-                Write-Log "  Found $($matchingKeys.Count) HKLM ProgID class(es)" -Level WARNING
-                foreach ($key in $matchingKeys) {
-                    $RemediationResults.Summary.BrowserEntriesChecked++
-                    $RemediationResults.Summary.BrowserEntriesFound++
-                    
-                    $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM ProgID Class"
-                }
-            }
-        }
-    }
-    
-    # Per-User ProgID Classes
     foreach ($sid in $userSIDs) {
+        Write-Log "  Processing SID: $sid" -Level INFO
+        
         $hkuClassesPath = "Registry::HKU\$sid\Software\Classes"
         
         if (Test-Path $hkuClassesPath) {
@@ -3351,29 +3338,57 @@ function Remove-MalwareBrowserEntries {
                     Where-Object { $_.PSChildName -like $pattern }
                 
                 if ($matchingKeys) {
-                    Write-Log "    Found $($matchingKeys.Count) user ProgID class(es)" -Level WARNING
+                    Write-Log "    Found $($matchingKeys.Count) user ProgID class(es) matching: $pattern" -Level WARNING
                     foreach ($key in $matchingKeys) {
-                        $RemediationResults.Summary.BrowserEntriesChecked++
-                        $RemediationResults.Summary.BrowserEntriesFound++
-                        
                         $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "User ProgID Class"
                     }
+                } else {
+                    Write-Log "    [NOT FOUND] No user ProgID classes match: $pattern" -Level INFO
                 }
             }
+        } else {
+            Write-Log "    [NOT FOUND] User Classes path does not exist" -Level INFO
         }
     }
     
     # ========================================================================
-    # PHASE 4: UserChoice Associations (PROTECTED - REPORT ONLY)
+    # PHASE 4: ProgID Classes (HKLM)
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 4: Removing HKLM ProgID classes..." -Level INFO
+    
+    $hklmClassesPath = "HKLM:\Software\Classes"
+    
+    if (Test-Path $hklmClassesPath) {
+        foreach ($pattern in $BrowserPatterns) {
+            $matchingKeys = Get-ChildItem $hklmClassesPath -ErrorAction SilentlyContinue |
+                Where-Object { $_.PSChildName -like $pattern }
+            
+            if ($matchingKeys) {
+                Write-Log "  Found $($matchingKeys.Count) HKLM ProgID class(es) matching: $pattern" -Level WARNING
+                foreach ($key in $matchingKeys) {
+                    $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM ProgID Class"
+                }
+            } else {
+                Write-Log "  [NOT FOUND] No HKLM ProgID classes match: $pattern" -Level INFO
+            }
+        }
+    } else {
+        Write-Log "  [NOT FOUND] HKLM Classes path does not exist" -Level INFO
+    }
+    
+    # ========================================================================
+    # PHASE 5: UserChoice Associations (Windows Protected - Report Only)
     # ========================================================================
     
     if ($FeatureUsagePatterns.Count -gt 0) {
         Write-Log "" -Level INFO
-        Write-Log "Phase 4: Checking UserChoice associations..." -Level INFO
-        Write-Log "  Note: UserChoice keys are hash-protected by Windows" -Level INFO
-        Write-Log "  These entries will be reported but NOT removed" -Level INFO
+        Write-Log "Phase 5: Checking UserChoice associations (Windows protected)..." -Level INFO
         
         foreach ($sid in $userSIDs) {
+            Write-Log "  Processing SID: $sid" -Level INFO
+            
             $userChoicePath = "Registry::HKU\$sid\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts"
             
             if (Test-Path $userChoicePath) {
@@ -3393,18 +3408,11 @@ function Remove-MalwareBrowserEntries {
                                         $RemediationResults.Summary.BrowserEntriesFound++
                                         
                                         Write-Log "    [FOUND] UserChoice for $($ext.PSChildName) : $progId" -Level WARNING
-                                        Write-Log "      Status: PROTECTED (hash-protected by Windows)" -Level INFO
-                                        Write-Log "      Action: REPORT ONLY - Will reset when user changes default" -Level INFO
-                                        
-                                        $details = @{
-                                            Extension = $ext.PSChildName
-                                            ProgId = $progId
-                                            Protection = "Windows UserChoice Hash"
-                                        }
+                                        Write-Log "    [PROTECTED] UserChoice key is hash-protected by Windows" -Level INFO
+                                        Write-Log "    [INFO] Will be reset when user changes default program" -Level INFO
                                         
                                         $record = New-BrowserRecord -EntryPath $userChoiceKey `
-                                            -EntryType "UserChoice (Protected)" -Status $StatusLevels.Protected `
-                                            -Details $details
+                                            -EntryType "UserChoice (Windows Protected)" -Status "NOTED"
                                         $RemediationResults.BrowserEntries.Noted += $record
                                     }
                                 }
@@ -3414,12 +3422,14 @@ function Remove-MalwareBrowserEntries {
                         }
                     }
                 }
+            } else {
+                Write-Log "    [NOT FOUND] FileExts path does not exist" -Level INFO
             }
         }
     }
     
     # ========================================================================
-    # MODULE COMPLETION & TIMING
+    # MODULE COMPLETION
     # ========================================================================
     
     $moduleEndTime = Get-Date
@@ -3433,11 +3443,11 @@ function Remove-MalwareBrowserEntries {
     Write-Log "  Entries Removed: $($RemediationResults.Summary.BrowserEntriesRemoved)" -Level SUCCESS
     Write-Log "  Entries Failed: $($RemediationResults.Summary.BrowserEntriesFailed)" -Level ERROR
     Write-Log "  Entries Errored: $($RemediationResults.Summary.BrowserEntriesErrored)" -Level ERROR
-    Write-Log "  UserChoice (Protected): $($RemediationResults.BrowserEntries.Noted.Count)" -Level INFO
+    Write-Log "  Entries Not Found: $($RemediationResults.Summary.BrowserEntriesNotFound)" -Level INFO
+    Write-Log "  ---" -Level INFO
     Write-Log "  Note: UserChoice keys are Windows-protected and will reset naturally" -Level INFO
     Write-Log "========================================" -Level INFO
 }
-
 
 # ============================================================================ #
 # PRIMARY FUNCTIONS - FILE ASSOCIATION CLEANUP
