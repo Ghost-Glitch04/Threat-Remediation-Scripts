@@ -2447,63 +2447,97 @@ function Remove-PathItem {
     <#
     .SYNOPSIS
     Removes a file or folder with detailed tracking
+    .DESCRIPTION
+    Attempts to remove a file or folder, captures detailed metadata,
+    and tracks the outcome in the remediation results.
     #>
     param(
+        [Parameter(Mandatory=$true)]
         [string]$Path
     )
     
     if (-not (Test-Path $Path)) {
-        return "NOT_FOUND"
+        return $StatusLevels.NotFound
     }
     
     try {
         $item = Get-Item $Path -Force -ErrorAction Stop
         $itemType = if ($item.PSIsContainer) { "Folder" } else { "File" }
-        $itemSize = if ($item.PSIsContainer) { 
-            (Get-ChildItem $Path -Recurse -Force -ErrorAction SilentlyContinue | 
-                Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum 
-        } else { 
-            $item.Length 
+        
+        # Calculate size
+        $itemSize = 0
+        if ($item.PSIsContainer) {
+            $folderItems = Get-ChildItem $Path -Recurse -Force -ErrorAction SilentlyContinue
+            $itemSize = ($folderItems | Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
+            $fileCount = ($folderItems | Where-Object { -not $_.PSIsContainer }).Count
+            Write-Log "    [FOUND] $itemType : $Path" -Level WARNING
+            Write-Log "      Size: $([math]::Round($itemSize/1KB, 2)) KB | Files: $fileCount" -Level INFO
+        } else {
+            $itemSize = $item.Length
+            Write-Log "    [FOUND] $itemType : $Path ($([math]::Round($itemSize/1KB, 2)) KB)" -Level WARNING
         }
         
         $RemediationResults.Summary.PathsFound++
-        Write-Log "    [FOUND] $itemType : $Path ($([math]::Round($itemSize/1KB, 2)) KB)" -Level WARNING
         
+        # Attempt removal
         Remove-Item $Path -Recurse -Force -ErrorAction Stop
         Start-Sleep -Milliseconds 200
         
+        # Verify removal
         if (-not (Test-Path $Path)) {
-            Write-Log "    [SUCCESS] Removed: $Path" -Level SUCCESS
+            Write-Log "    [SUCCESS] Removed: $([math]::Round($itemSize/1KB, 2)) KB freed" -Level SUCCESS
             
-            $record = New-FileRecord -Path $Path -Status "REMOVED" -Type $itemType -Size $itemSize
+            $record = New-FileRecord -Path $Path -Status $StatusLevels.Success `
+                -Type $itemType -Size $itemSize
             $RemediationResults.Files.Removed += $record
             $RemediationResults.Summary.PathsRemoved++
-            return "SUCCESS"
+            return $StatusLevels.Success
+            
         } else {
             Write-Log "    [FAILED] Still exists: $Path" -Level ERROR
+            Write-Log "      This may indicate file/folder lock or protection" -Level ERROR
             
-            $record = New-FileRecord -Path $Path -Status "FAILED" -Type $itemType -Size $itemSize `
-                -ErrorMessage "Item still exists after removal attempt"
+            $record = New-FileRecord -Path $Path -Status $StatusLevels.Failed `
+                -Type $itemType -Size $itemSize `
+                -ErrorMessage "Item still exists after removal attempt (may be locked)"
             $RemediationResults.Files.Failed += $record
             $RemediationResults.Summary.PathsFailed++
-            return "FAILED"
+            return $StatusLevels.Failed
         }
-    } catch {
-        Write-Log "    [ERROR] Failed to remove $Path : $($_.Exception.Message)" -Level ERROR
         
-        $record = New-FileRecord -Path $Path -Status "ERROR" -ErrorMessage $_.Exception.Message
+    } catch {
+        $errorMsg = $_.Exception.Message
+        Write-Log "    [ERROR] Failed to remove $Path" -Level ERROR
+        Write-Log "      Error: $errorMsg" -Level ERROR
+        
+        # Identify common error types
+        if ($errorMsg -like "*Access is denied*") {
+            Write-Log "      Reason: Access denied (may require elevated permissions)" -Level ERROR
+        } elseif ($errorMsg -like "*being used by another process*") {
+            Write-Log "      Reason: File is in use by another process" -Level ERROR
+        }
+        
+        $record = New-FileRecord -Path $Path -Status $StatusLevels.Error `
+            -ErrorMessage $errorMsg
         $RemediationResults.Files.Errored += $record
         $RemediationResults.Summary.PathsErrored++
         
-        $RemediationResults.CriticalErrors += "File: $Path - $($_.Exception.Message)"
-        return "ERROR"
+        $RemediationResults.CriticalErrors += "File: $Path - $errorMsg"
+        return $StatusLevels.Error
     }
 }
 
 function Remove-MalwareFiles {
     <#
     .SYNOPSIS
-    Removes malware files and folders
+    Removes malware files and folders with comprehensive tracking
+    .DESCRIPTION
+    Systematically removes malware files in three phases:
+    1. User-specific paths (AppData, Desktop, etc.)
+    2. Downloads folder cleanup (installers, etc.)
+    3. System-level paths
+    
+    Tracks all operations with detailed metrics and timing.
     #>
     
     param(
@@ -2517,101 +2551,244 @@ function Remove-MalwareFiles {
         [array]$SystemPaths
     )
     
+    # Module timing start
+    $moduleStartTime = Get-Date
+    
     Write-Log "========================================" -Level INFO
     Write-Log "FILE & FOLDER CLEANUP MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
+    Write-Log "Target user paths: $($UserPaths.Count)" -Level INFO
+    Write-Log "Download patterns: $($DownloadPatterns.Count)" -Level INFO
+    Write-Log "System paths: $($SystemPaths.Count)" -Level INFO
     
-    Write-Log "Phase 1: Removing user-specific paths..." -Level INFO
+    # Phase counters
+    $phase1Removed = 0
+    $phase2Removed = 0
+    $phase3Removed = 0
+    
+    # ========================================================================
+    # PHASE 1: USER-SPECIFIC PATHS
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 1: User-Specific Paths" -Level INFO
+    Write-Log "  Targeting AppData, Desktop, Start Menu, etc." -Level INFO
     
     $userProfiles = Get-UserProfiles
-    Write-Log "  Found $($userProfiles.Count) user profile(s)" -Level INFO
+    
+    if ($userProfiles.Count -eq 0) {
+        Write-Log "  [WARNING] No user profiles found" -Level WARNING
+    } else {
+        Write-Log "  Found $($userProfiles.Count) user profile(s)" -Level INFO
+    }
     
     foreach ($user in $userProfiles) {
+        Write-Log "  ---" -Level INFO
         Write-Log "  Processing user: $user" -Level INFO
+        
+        $userItemsChecked = 0
+        $userItemsRemoved = 0
         
         foreach ($pathTemplate in $UserPaths) {
             $RemediationResults.Summary.PathsChecked++
+            $userItemsChecked++
             
+            # Replace {USER} placeholder
             $actualPath = $pathTemplate -replace '\{USER\}', $user
             
-            $result = Remove-PathItem -Path $actualPath
-            
-            if ($result -eq "NOT_FOUND") {
-                $record = New-FileRecord -Path $actualPath -Status "NOT_FOUND"
-                $RemediationResults.Files.NotFound += $record
-                $RemediationResults.Summary.PathsNotFound++
-            }
-        }
-    }
-    
-    Write-Log "Phase 2: Cleaning Downloads folder..." -Level INFO
-    
-    foreach ($user in $userProfiles) {
-        $downloadsPath = "C:\Users\$user\Downloads"
-        
-        if (-not (Test-Path $downloadsPath)) {
-            continue
-        }
-        
-        Write-Log "  Scanning: $downloadsPath" -Level INFO
-        
-        foreach ($pattern in $DownloadPatterns) {
-            $files = Get-ChildItem $downloadsPath -Filter $pattern -File -Recurse -Force -ErrorAction SilentlyContinue
-            
-            foreach ($file in $files) {
-                $RemediationResults.Summary.PathsChecked++
-                $result = Remove-PathItem -Path $file.FullName
+            # Handle wildcard patterns
+            if ($actualPath -match '\*') {
+                $parentPath = Split-Path $actualPath -Parent
+                $pattern = Split-Path $actualPath -Leaf
                 
-                if ($result -eq "NOT_FOUND") {
-                    $record = New-FileRecord -Path $file.FullName -Status "NOT_FOUND"
+                if (Test-Path $parentPath) {
+                    $matchingItems = Get-ChildItem $parentPath -Filter $pattern -Force -ErrorAction SilentlyContinue
+                    
+                    if ($matchingItems) {
+                        Write-Log "    Pattern: $pattern matched $($matchingItems.Count) item(s)" -Level INFO
+                        foreach ($item in $matchingItems) {
+                            $result = Remove-PathItem -Path $item.FullName
+                            if ($result -eq $StatusLevels.Success) { 
+                                $phase1Removed++
+                                $userItemsRemoved++
+                            } elseif ($result -eq $StatusLevels.NotFound) {
+                                $record = New-FileRecord -Path $item.FullName -Status $StatusLevels.NotFound
+                                $RemediationResults.Files.NotFound += $record
+                                $RemediationResults.Summary.PathsNotFound++
+                            }
+                        }
+                    }
+                }
+            } else {
+                # Exact path match
+                $result = Remove-PathItem -Path $actualPath
+                
+                if ($result -eq $StatusLevels.Success) {
+                    $phase1Removed++
+                    $userItemsRemoved++
+                } elseif ($result -eq $StatusLevels.NotFound) {
+                    $record = New-FileRecord -Path $actualPath -Status $StatusLevels.NotFound
                     $RemediationResults.Files.NotFound += $record
                     $RemediationResults.Summary.PathsNotFound++
                 }
             }
         }
+        
+        Write-Log "  Summary for $user : Checked=$userItemsChecked Removed=$userItemsRemoved" -Level INFO
     }
     
-    Write-Log "Phase 3: Removing system-level paths..." -Level INFO
+    Write-Log "  Phase 1 Complete: $phase1Removed item(s) removed" -Level SUCCESS
+    
+    # ========================================================================
+    # PHASE 2: DOWNLOADS FOLDER
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 2: Downloads Folder Cleanup" -Level INFO
+    Write-Log "  Searching for malware installers and packages" -Level INFO
+    
+    foreach ($user in $userProfiles) {
+        $downloadsPath = "C:\Users\$user\Downloads"
+        
+        if (-not (Test-Path $downloadsPath)) {
+            Write-Log "  No Downloads folder for: $user" -Level INFO
+            continue
+        }
+        
+        Write-Log "  ---" -Level INFO
+        Write-Log "  Scanning: $downloadsPath" -Level INFO
+        
+        $downloadItemsFound = 0
+        $downloadItemsRemoved = 0
+        
+        foreach ($pattern in $DownloadPatterns) {
+            try {
+                $files = Get-ChildItem $downloadsPath -Filter $pattern -File -Recurse -Force -ErrorAction SilentlyContinue
+                
+                if ($files) {
+                    Write-Log "    Pattern '$pattern' matched $($files.Count) file(s)" -Level WARNING
+                    $downloadItemsFound += $files.Count
+                }
+                
+                foreach ($file in $files) {
+                    $RemediationResults.Summary.PathsChecked++
+                    $result = Remove-PathItem -Path $file.FullName
+                    
+                    if ($result -eq $StatusLevels.Success) {
+                        $phase2Removed++
+                        $downloadItemsRemoved++
+                    } elseif ($result -eq $StatusLevels.NotFound) {
+                        $record = New-FileRecord -Path $file.FullName -Status $StatusLevels.NotFound
+                        $RemediationResults.Files.NotFound += $record
+                        $RemediationResults.Summary.PathsNotFound++
+                    }
+                }
+            } catch {
+                Write-Log "    [ERROR] Pattern search failed: $pattern - $($_.Exception.Message)" -Level ERROR
+            }
+        }
+        
+        if ($downloadItemsFound -eq 0) {
+            Write-Log "    [OK] No malware installers found" -Level SUCCESS
+        } else {
+            Write-Log "    Found=$downloadItemsFound Removed=$downloadItemsRemoved" -Level INFO
+        }
+    }
+    
+    Write-Log "  Phase 2 Complete: $phase2Removed item(s) removed" -Level SUCCESS
+    
+    # ========================================================================
+    # PHASE 3: SYSTEM-LEVEL PATHS
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 3: System-Level Paths" -Level INFO
+    Write-Log "  Targeting system profile and protected directories" -Level INFO
     
     foreach ($path in $SystemPaths) {
         $RemediationResults.Summary.PathsChecked++
         
+        # Handle wildcard patterns
         if ($path -match '\*') {
             $parentPath = Split-Path $path -Parent
             $pattern = Split-Path $path -Leaf
             
             if (Test-Path $parentPath) {
+                Write-Log "  Searching: $parentPath\$pattern" -Level INFO
                 $items = Get-ChildItem $parentPath -Filter $pattern -Force -ErrorAction SilentlyContinue
                 
-                foreach ($item in $items) {
-                    $result = Remove-PathItem -Path $item.FullName
-                    
-                    if ($result -eq "NOT_FOUND") {
-                        $record = New-FileRecord -Path $item.FullName -Status "NOT_FOUND"
-                        $RemediationResults.Files.NotFound += $record
-                        $RemediationResults.Summary.PathsNotFound++
+                if ($items) {
+                    Write-Log "    Found $($items.Count) matching item(s)" -Level WARNING
+                    foreach ($item in $items) {
+                        $result = Remove-PathItem -Path $item.FullName
+                        
+                        if ($result -eq $StatusLevels.Success) {
+                            $phase3Removed++
+                        } elseif ($result -eq $StatusLevels.NotFound) {
+                            $record = New-FileRecord -Path $item.FullName -Status $StatusLevels.NotFound
+                            $RemediationResults.Files.NotFound += $record
+                            $RemediationResults.Summary.PathsNotFound++
+                        }
                     }
+                } else {
+                    Write-Log "    [NOT FOUND] No matches for: $pattern" -Level INFO
                 }
+            } else {
+                Write-Log "  [NOT FOUND] Parent path does not exist: $parentPath" -Level INFO
+                $record = New-FileRecord -Path $path -Status $StatusLevels.NotFound
+                $RemediationResults.Files.NotFound += $record
+                $RemediationResults.Summary.PathsNotFound++
             }
         } else {
+            # Exact path
+            Write-Log "  Checking: $path" -Level INFO
             $result = Remove-PathItem -Path $path
             
-            if ($result -eq "NOT_FOUND") {
-                $record = New-FileRecord -Path $path -Status "NOT_FOUND"
+            if ($result -eq $StatusLevels.Success) {
+                $phase3Removed++
+            } elseif ($result -eq $StatusLevels.NotFound) {
+                Write-Log "    [NOT FOUND] Path does not exist" -Level INFO
+                $record = New-FileRecord -Path $path -Status $StatusLevels.NotFound
                 $RemediationResults.Files.NotFound += $record
                 $RemediationResults.Summary.PathsNotFound++
             }
         }
     }
     
+    Write-Log "  Phase 3 Complete: $phase3Removed item(s) removed" -Level SUCCESS
+    
+    # ========================================================================
+    # MODULE SUMMARY
+    # ========================================================================
+    
+    # Module timing end
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Files" -StartTime $moduleStartTime -EndTime $moduleEndTime
+    
+    Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "FILE & FOLDER CLEANUP SUMMARY" -Level INFO
+    Write-Log "========================================" -Level INFO
+    Write-Log "PHASE BREAKDOWN:" -Level INFO
+    Write-Log "  Phase 1 (User Paths): $phase1Removed removed" -Level INFO
+    Write-Log "  Phase 2 (Downloads): $phase2Removed removed" -Level INFO
+    Write-Log "  Phase 3 (System): $phase3Removed removed" -Level INFO
+    Write-Log "  ---" -Level INFO
+    Write-Log "OVERALL STATISTICS:" -Level INFO
     Write-Log "  Paths Checked: $($RemediationResults.Summary.PathsChecked)" -Level INFO
     Write-Log "  Paths Found: $($RemediationResults.Summary.PathsFound)" -Level INFO
     Write-Log "  Paths Removed: $($RemediationResults.Summary.PathsRemoved)" -Level SUCCESS
     Write-Log "  Paths Failed: $($RemediationResults.Summary.PathsFailed)" -Level ERROR
     Write-Log "  Paths Errored: $($RemediationResults.Summary.PathsErrored)" -Level ERROR
     Write-Log "  Paths Not Found: $($RemediationResults.Summary.PathsNotFound)" -Level INFO
+    
+    if ($RemediationResults.Summary.PathsFailed -gt 0 -or $RemediationResults.Summary.PathsErrored -gt 0) {
+        Write-Log "  ---" -Level WARNING
+        Write-Log "  WARNING: Some items could not be removed" -Level WARNING
+        Write-Log "  Common causes: File locks, permissions, or active processes" -Level WARNING
+        Write-Log "  Recommendation: Review Critical Errors in final report" -Level WARNING
+    }
+    
     Write-Log "========================================" -Level INFO
 }
 
