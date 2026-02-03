@@ -1422,7 +1422,7 @@ function Stop-MalwareService {
 }
 
 # ============================================================================ #
-# CERTIFICATE ANALYSIS & REMEDIATION
+# CERTIFICATE ANALYSIS & REMEDIATION (ENHANCED)
 # ============================================================================ #
 
 function Test-ProtectedCertificate {
@@ -1466,12 +1466,16 @@ function Remove-MalwareCertificates {
     
     Includes guardrails for protected vendors (Microsoft, etc.)
     Reports unexpected certificates matching keywords but not in known lists
+    Tracks detailed metrics including module execution timing
     #>
     
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$CertConfig
     )
+    
+    # Module timing start
+    $moduleStartTime = Get-Date
     
     Write-Log "========================================" -Level INFO
     Write-Log "CERTIFICATE ANALYSIS & REMEDIATION (ENHANCED)" -Level INFO
@@ -1691,9 +1695,9 @@ function Remove-MalwareCertificates {
             
             $record = New-CertificateRecord -StoreLocation $cert.Location `
                 -StoreName $cert.StoreName -Subject $cert.Subject `
-                -Thumbprint $cert.Thumbprint -Status "PROTECTED" `
+                -Thumbprint $cert.Thumbprint -Status $StatusLevels.Protected `
                 -Details $cert.Details -FlagReasons $cert.FlagReasons
-            $RemediationResults.Certificates.Flagged += $record
+            $RemediationResults.Certificates.Protected += $record
         }
     }
     
@@ -1731,6 +1735,11 @@ function Remove-MalwareCertificates {
     if ($allKnownMalicious.Count -eq 0 -and $suspiciousUnknown.Count -eq 0 -and $protectedCertificates.Count -eq 0) {
         Write-Log "" -Level SUCCESS
         Write-Log "  [OK] No malicious or suspicious certificates detected" -Level SUCCESS
+        
+        # Module timing end
+        $moduleEndTime = Get-Date
+        Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStartTime -EndTime $moduleEndTime
+        
         Write-Log "========================================" -Level INFO
         return
     }
@@ -1770,7 +1779,7 @@ function Remove-MalwareCertificates {
                     
                     $record = New-CertificateRecord -StoreLocation $certInfo.Location `
                         -StoreName $certInfo.StoreName -Subject $certInfo.Subject `
-                        -Thumbprint $certInfo.Thumbprint -Status "REMOVED" `
+                        -Thumbprint $certInfo.Thumbprint -Status $StatusLevels.Success `
                         -Details $certInfo.Details -FlagReasons $certInfo.FlagReasons
                     $RemediationResults.Certificates.Removed += $record
                     $RemediationResults.Summary.CertificatesRemoved++
@@ -1779,7 +1788,7 @@ function Remove-MalwareCertificates {
                     
                     $record = New-CertificateRecord -StoreLocation $certInfo.Location `
                         -StoreName $certInfo.StoreName -Subject $certInfo.Subject `
-                        -Thumbprint $certInfo.Thumbprint -Status "FAILED" `
+                        -Thumbprint $certInfo.Thumbprint -Status $StatusLevels.Failed `
                         -Details $certInfo.Details -FlagReasons $certInfo.FlagReasons `
                         -ErrorMessage "Certificate still present after removal"
                     $RemediationResults.Certificates.Failed += $record
@@ -1790,9 +1799,10 @@ function Remove-MalwareCertificates {
                 
                 $record = New-CertificateRecord -StoreLocation $certInfo.Location `
                     -StoreName $certInfo.StoreName -Subject $certInfo.Subject `
-                    -Thumbprint $certInfo.Thumbprint -Status "NOT_FOUND" `
+                    -Thumbprint $certInfo.Thumbprint -Status $StatusLevels.NotFound `
                     -Details $certInfo.Details -FlagReasons $certInfo.FlagReasons
                 $RemediationResults.Certificates.NotFound += $record
+                $RemediationResults.Summary.CertificatesNotFound++
             }
             
             $store.Close()
@@ -1808,7 +1818,7 @@ function Remove-MalwareCertificates {
             
             $record = New-CertificateRecord -StoreLocation $certInfo.Location `
                 -StoreName $certInfo.StoreName -Subject $certInfo.Subject `
-                -Thumbprint $certInfo.Thumbprint -Status "ERROR" `
+                -Thumbprint $certInfo.Thumbprint -Status $StatusLevels.Error `
                 -Details $certInfo.Details -FlagReasons $certInfo.FlagReasons `
                 -ErrorMessage $errorMsg
             $RemediationResults.Certificates.Errored += $record
@@ -1818,6 +1828,11 @@ function Remove-MalwareCertificates {
         }
     }
     
+    # Module timing end
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStartTime -EndTime $moduleEndTime
+    
+    # Module summary
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "CERTIFICATE REMEDIATION SUMMARY" -Level INFO
@@ -1832,6 +1847,7 @@ function Remove-MalwareCertificates {
     Write-Log "  Certificates Removed: $($RemediationResults.Summary.CertificatesRemoved)" -Level SUCCESS
     Write-Log "  Certificates Failed: $($RemediationResults.Summary.CertificatesFailed)" -Level ERROR
     Write-Log "  Certificates Errored: $($RemediationResults.Summary.CertificatesErrored)" -Level ERROR
+    Write-Log "  Not Found: $($RemediationResults.Summary.CertificatesNotFound)" -Level INFO
     Write-Log "========================================" -Level INFO
 }
 
