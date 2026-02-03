@@ -2805,8 +2805,6 @@ function Remove-RegistryKeyRecursive {
         [string]$KeyPath
     )
     
-    $RemediationResults.Summary.RegistryKeysChecked++
-    
     Write-Log "  Checking: $KeyPath" -Level INFO
     
     $keyDetails = Get-RegistryKeyDetails -KeyPath $KeyPath
@@ -2831,7 +2829,6 @@ function Remove-RegistryKeyRecursive {
             $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status "REMOVED" `
                 -SubkeyCount $keyDetails.SubkeyCount -ValueCount $keyDetails.ValueCount
             $RemediationResults.Registry.Removed += $record
-            $RemediationResults.Summary.RegistryValuesRemoved++
             return "SUCCESS"
             
         } else {
@@ -2841,7 +2838,6 @@ function Remove-RegistryKeyRecursive {
                 -SubkeyCount $keyDetails.SubkeyCount -ValueCount $keyDetails.ValueCount `
                 -ErrorMessage "Key still exists after removal (possible kernel protection)"
             $RemediationResults.Registry.Failed += $record
-            $RemediationResults.Summary.RegistryValuesFailed++
             return "FAILED"
         }
         
@@ -2849,11 +2845,15 @@ function Remove-RegistryKeyRecursive {
         $errorMsg = $_.Exception.Message
         Write-Log "    [ERROR] Failed to remove: $errorMsg" -Level ERROR
         
+        if ($errorMsg -like "*Access is denied*" -or $errorMsg -like "*protected*") {
+            Write-Log "    [!] Key may be kernel-level protected" -Level ERROR
+            Write-Log "    [!] Manual removal or specialized tools may be required" -Level ERROR
+        }
+        
         $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status "ERROR" `
             -SubkeyCount $keyDetails.SubkeyCount -ValueCount $keyDetails.ValueCount `
             -ErrorMessage $errorMsg
         $RemediationResults.Registry.Errored += $record
-        $RemediationResults.Summary.RegistryValuesErrored++
         
         $RemediationResults.CriticalErrors += "Registry: $KeyPath - $errorMsg"
         return "ERROR"
@@ -2864,6 +2864,12 @@ function Remove-MalwareRegistryKeys {
     <#
     .SYNOPSIS
     Removes malware registry keys (artifacts and configuration)
+    .DESCRIPTION
+    Cleans up registry keys left behind by malware, including:
+    - HKLM system-wide configuration
+    - Per-user settings in HKU hives
+    - COM object registrations
+    - Uninstall entries
     #>
     
     param(
@@ -2874,34 +2880,107 @@ function Remove-MalwareRegistryKeys {
         [array]$HKUPatterns
     )
     
+    # Start timing
+    $moduleStart = Get-Date
+    
     Write-Log "========================================" -Level INFO
     Write-Log "REGISTRY CLEANUP MODULE (ARTIFACTS)" -Level INFO
     Write-Log "========================================" -Level INFO
+    Write-Log "Target HKLM paths: $($HKLMPaths.Count)" -Level INFO
+    Write-Log "Target HKU patterns: $($HKUPatterns.Count)" -Level INFO
     
+    # ========================================================================
+    # PHASE 1: HKLM (Local Machine) Registry Keys
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
     Write-Log "Phase 1: Removing HKLM registry keys..." -Level INFO
     
-    foreach ($keyPath in $HKLMPaths) {
-        $null = Remove-RegistryKeyRecursive -KeyPath $keyPath  # <-- FIX: Capture return
+    $phase1Results = @{
+        Checked = 0
+        Found = 0
+        Removed = 0
+        Failed = 0
+        Errored = 0
+        NotFound = 0
     }
     
+    foreach ($keyPath in $HKLMPaths) {
+        $phase1Results.Checked++
+        $RemediationResults.Summary.RegistryKeysChecked++
+        
+        $result = Remove-RegistryKeyRecursive -KeyPath $keyPath
+        
+        switch ($result) {
+            "SUCCESS" { 
+                $phase1Results.Found++
+                $phase1Results.Removed++
+                $RemediationResults.Summary.RegistryValuesRemoved++
+            }
+            "FAILED" {
+                $phase1Results.Found++
+                $phase1Results.Failed++
+                $RemediationResults.Summary.RegistryValuesFailed++
+            }
+            "ERROR" {
+                $phase1Results.Found++
+                $phase1Results.Errored++
+                $RemediationResults.Summary.RegistryValuesErrored++
+            }
+            "NOT_FOUND" {
+                $phase1Results.NotFound++
+                $RemediationResults.Summary.RegistryValuesNotFound++
+            }
+        }
+    }
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 1 Results:" -Level INFO
+    Write-Log "  Checked: $($phase1Results.Checked) | Found: $($phase1Results.Found) | Removed: $($phase1Results.Removed) | Failed: $($phase1Results.Failed)" -Level INFO
+    
+    # ========================================================================
+    # PHASE 2: HKU (Per-User) Registry Keys
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
     Write-Log "Phase 2: Removing per-user registry keys..." -Level INFO
     
     $userSIDs = Get-UserSIDs
     Write-Log "  Found $($userSIDs.Count) user profile(s)" -Level INFO
     
+    if ($userSIDs.Count -eq 0) {
+        Write-Log "  [WARNING] No user SIDs found - skipping HKU cleanup" -Level WARNING
+    }
+    
+    $phase2Results = @{
+        Checked = 0
+        Found = 0
+        Removed = 0
+        Failed = 0
+        Errored = 0
+        NotFound = 0
+        PatternsWithMatches = 0
+    }
+    
     foreach ($sid in $userSIDs) {
+        Write-Log "" -Level INFO
         Write-Log "  Processing SID: $sid" -Level INFO
         
         foreach ($pattern in $HKUPatterns) {
             $basePath = "Registry::HKU\$sid"
             $searchPath = "$basePath\$pattern"
             
-            Write-Log "    Searching: $searchPath" -Level INFO
-            
+            # ----------------------------------------------------------------
+            # Handle wildcard patterns
+            # ----------------------------------------------------------------
             if ($pattern -match '\*') {
+                Write-Log "    Searching pattern: $pattern" -Level INFO
+                
+                # Split pattern to find where wildcard starts
                 $parts = $pattern -split '\\'
                 $currentPath = $basePath
                 
+                # Build path up to first wildcard
                 $searchFromIndex = 0
                 for ($i = 0; $i -lt $parts.Count; $i++) {
                     if ($parts[$i] -match '\*') {
@@ -2914,41 +2993,120 @@ function Remove-MalwareRegistryKeys {
                 if (Test-Path $currentPath) {
                     $searchPattern = $parts[$searchFromIndex]
                     
-                    $matchingKeys = Get-ChildItem $currentPath -ErrorAction SilentlyContinue |
-                        Where-Object { $_.PSChildName -like $searchPattern }
-                    
-                    if ($matchingKeys) {
-                        Write-Log "      Found $($matchingKeys.Count) matching key(s)" -Level WARNING
-                        foreach ($key in $matchingKeys) {
-                            $null = Remove-RegistryKeyRecursive -KeyPath $key.PSPath  # <-- FIX: Capture return
-                        }
-                    } else {
-                        Write-Log "      [NOT FOUND] No keys match pattern" -Level INFO
+                    try {
+                        $matchingKeys = Get-ChildItem $currentPath -ErrorAction SilentlyContinue |
+                            Where-Object { $_.PSChildName -like $searchPattern }
                         
-                        $record = New-RegistryKeyRecord -KeyPath $searchPath -Status "NOT_FOUND"
-                        $RemediationResults.Registry.NotFound += $record
-                        $RemediationResults.Summary.RegistryKeysChecked++
+                        if ($matchingKeys) {
+                            $phase2Results.PatternsWithMatches++
+                            Write-Log "      [FOUND] $($matchingKeys.Count) key(s) match pattern '$searchPattern'" -Level WARNING
+                            
+                            foreach ($key in $matchingKeys) {
+                                $phase2Results.Checked++
+                                $RemediationResults.Summary.RegistryKeysChecked++
+                                
+                                $result = Remove-RegistryKeyRecursive -KeyPath $key.PSPath
+                                
+                                switch ($result) {
+                                    "SUCCESS" { 
+                                        $phase2Results.Found++
+                                        $phase2Results.Removed++
+                                        $RemediationResults.Summary.RegistryValuesRemoved++
+                                    }
+                                    "FAILED" {
+                                        $phase2Results.Found++
+                                        $phase2Results.Failed++
+                                        $RemediationResults.Summary.RegistryValuesFailed++
+                                    }
+                                    "ERROR" {
+                                        $phase2Results.Found++
+                                        $phase2Results.Errored++
+                                        $RemediationResults.Summary.RegistryValuesErrored++
+                                    }
+                                }
+                            }
+                        } else {
+                            Write-Log "      [NOT FOUND] No keys match pattern '$searchPattern'" -Level INFO
+                            $phase2Results.NotFound++
+                            
+                            $record = New-RegistryKeyRecord -KeyPath $searchPath -Status "NOT_FOUND"
+                            $RemediationResults.Registry.NotFound += $record
+                        }
+                    } catch {
+                        Write-Log "      [ERROR] Failed to search pattern: $($_.Exception.Message)" -Level ERROR
+                        $phase2Results.Errored++
+                        $RemediationResults.Summary.RegistryValuesErrored++
                     }
                 } else {
-                    Write-Log "      [NOT FOUND] Base path does not exist" -Level INFO
+                    Write-Log "      [NOT FOUND] Base path does not exist: $currentPath" -Level INFO
+                    $phase2Results.NotFound++
                     
                     $record = New-RegistryKeyRecord -KeyPath $searchPath -Status "NOT_FOUND"
                     $RemediationResults.Registry.NotFound += $record
-                    $RemediationResults.Summary.RegistryKeysChecked++
                 }
                 
             } else {
-                $null = Remove-RegistryKeyRecursive -KeyPath $searchPath  # <-- FIX: Capture return
+                # ----------------------------------------------------------------
+                # Handle exact path (no wildcards)
+                # ----------------------------------------------------------------
+                $phase2Results.Checked++
+                $RemediationResults.Summary.RegistryKeysChecked++
+                
+                $result = Remove-RegistryKeyRecursive -KeyPath $searchPath
+                
+                switch ($result) {
+                    "SUCCESS" { 
+                        $phase2Results.Found++
+                        $phase2Results.Removed++
+                        $RemediationResults.Summary.RegistryValuesRemoved++
+                    }
+                    "FAILED" {
+                        $phase2Results.Found++
+                        $phase2Results.Failed++
+                        $RemediationResults.Summary.RegistryValuesFailed++
+                    }
+                    "ERROR" {
+                        $phase2Results.Found++
+                        $phase2Results.Errored++
+                        $RemediationResults.Summary.RegistryValuesErrored++
+                    }
+                    "NOT_FOUND" {
+                        $phase2Results.NotFound++
+                        $RemediationResults.Summary.RegistryValuesNotFound++
+                    }
+                }
             }
-        }
-    }
+        } # End foreach pattern
+    } # End foreach SID
     
+    Write-Log "" -Level INFO
+    Write-Log "Phase 2 Results:" -Level INFO
+    Write-Log "  Patterns with matches: $($phase2Results.PatternsWithMatches)" -Level INFO
+    Write-Log "  Checked: $($phase2Results.Checked) | Found: $($phase2Results.Found) | Removed: $($phase2Results.Removed) | Failed: $($phase2Results.Failed)" -Level INFO
+    
+    # ========================================================================
+    # MODULE SUMMARY & TIMING
+    # ========================================================================
+    
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStart -EndTime $moduleEnd
+    
+    Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "REGISTRY CLEANUP SUMMARY" -Level INFO
     Write-Log "  Keys Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
     Write-Log "  Keys Removed: $($RemediationResults.Summary.RegistryValuesRemoved)" -Level SUCCESS
     Write-Log "  Keys Failed: $($RemediationResults.Summary.RegistryValuesFailed)" -Level ERROR
     Write-Log "  Keys Errored: $($RemediationResults.Summary.RegistryValuesErrored)" -Level ERROR
+    Write-Log "  Keys Not Found: $($RemediationResults.Summary.RegistryValuesNotFound)" -Level INFO
+    
+    if ($RemediationResults.Summary.RegistryValuesFailed -gt 0) {
+        Write-Log "" -Level WARNING
+        Write-Log "  [!] Some registry keys could not be removed" -Level WARNING
+        Write-Log "  [!] These may be kernel-level protected" -Level WARNING
+        Write-Log "  [!] Review detailed log for specific keys" -Level WARNING
+    }
+    
     Write-Log "========================================" -Level INFO
 }
 
@@ -2967,7 +3125,13 @@ function Remove-BrowserEntry {
     )
     
     if (-not (Test-Path $KeyPath)) {
-        return "NOT_FOUND"
+        Write-Log "    [NOT FOUND] $EntryType : $KeyPath" -Level INFO
+        
+        $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType -Status $StatusLevels.NotFound
+        $RemediationResults.BrowserEntries.NotFound += $record
+        $RemediationResults.Summary.BrowserEntriesNotFound++
+        
+        return $StatusLevels.NotFound
     }
     
     try {
@@ -2979,30 +3143,33 @@ function Remove-BrowserEntry {
         if (-not (Test-Path $KeyPath)) {
             Write-Log "    [SUCCESS] Removed: $KeyPath" -Level SUCCESS
             
-            $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType -Status "REMOVED"
-            $RemediationResults.Registry.Removed += $record
-            $RemediationResults.Summary.RegistryValuesRemoved++
-            return "SUCCESS"
+            $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType -Status $StatusLevels.Success
+            $RemediationResults.BrowserEntries.Removed += $record
+            $RemediationResults.Summary.BrowserEntriesRemoved++
+            
+            return $StatusLevels.Success
         } else {
             Write-Log "    [FAILED] Still exists: $KeyPath" -Level ERROR
             
             $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
-                -Status "FAILED" -ErrorMessage "Key still exists after removal"
-            $RemediationResults.Registry.Failed += $record
-            $RemediationResults.Summary.RegistryValuesFailed++
-            return "FAILED"
+                -Status $StatusLevels.Failed -ErrorMessage "Key still exists after removal"
+            $RemediationResults.BrowserEntries.Failed += $record
+            $RemediationResults.Summary.BrowserEntriesFailed++
+            
+            return $StatusLevels.Failed
         }
     } catch {
         $errorMsg = $_.Exception.Message
         Write-Log "    [ERROR] Failed to remove: $errorMsg" -Level ERROR
         
         $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
-            -Status "ERROR" -ErrorMessage $errorMsg
-        $RemediationResults.Registry.Errored += $record
-        $RemediationResults.Summary.RegistryValuesErrored++
+            -Status $StatusLevels.Error -ErrorMessage $errorMsg
+        $RemediationResults.BrowserEntries.Errored += $record
+        $RemediationResults.Summary.BrowserEntriesErrored++
         
         $RemediationResults.CriticalErrors += "Browser Entry: $KeyPath - $errorMsg"
-        return "ERROR"
+        
+        return $StatusLevels.Error
     }
 }
 
@@ -3020,12 +3187,16 @@ function Remove-MalwareBrowserEntries {
         [array]$FeatureUsagePatterns = @()
     )
     
+    $moduleStart = Get-Date
+    
     Write-Log "========================================" -Level INFO
     Write-Log "BROWSER ENTRY CLEANUP MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "Removes browser hijacking to prevent false inventory detections" -Level INFO
     
-    $totalRemoved = 0
+    # ========================================================================
+    # PHASE 1: HKLM StartMenuInternet Entries
+    # ========================================================================
     
     Write-Log "Phase 1: Removing HKLM StartMenuInternet entries..." -Level INFO
     
@@ -3039,15 +3210,22 @@ function Remove-MalwareBrowserEntries {
             if ($matchingKeys) {
                 Write-Log "  Found $($matchingKeys.Count) HKLM browser registration(s)" -Level WARNING
                 foreach ($key in $matchingKeys) {
-                    $RemediationResults.Summary.RegistryKeysChecked++
-                    $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM Browser Registration"
-                    if ($result -eq "SUCCESS") { $totalRemoved++ }
+                    $RemediationResults.Summary.BrowserEntriesChecked++
+                    $RemediationResults.Summary.BrowserEntriesFound++
+                    
+                    $null = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM Browser Registration"
                 }
             } else {
                 Write-Log "  [NOT FOUND] No HKLM browser registrations match" -Level INFO
             }
         }
+    } else {
+        Write-Log "  [NOT FOUND] HKLM StartMenuInternet path does not exist" -Level INFO
     }
+    
+    # ========================================================================
+    # PHASE 2: Per-User StartMenuInternet Entries
+    # ========================================================================
     
     Write-Log "Phase 2: Removing per-user StartMenuInternet entries..." -Level INFO
     
@@ -3067,17 +3245,23 @@ function Remove-MalwareBrowserEntries {
                 if ($matchingKeys) {
                     Write-Log "    Found $($matchingKeys.Count) user browser registration(s)" -Level WARNING
                     foreach ($key in $matchingKeys) {
-                        $RemediationResults.Summary.RegistryKeysChecked++
-                        $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "User Browser Registration"
-                        if ($result -eq "SUCCESS") { $totalRemoved++ }
+                        $RemediationResults.Summary.BrowserEntriesChecked++
+                        $RemediationResults.Summary.BrowserEntriesFound++
+                        
+                        $null = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "User Browser Registration"
                     }
                 }
             }
         }
     }
     
+    # ========================================================================
+    # PHASE 3: ProgID Classes
+    # ========================================================================
+    
     Write-Log "Phase 3: Removing ProgID classes..." -Level INFO
     
+    # Per-user ProgID classes
     foreach ($sid in $userSIDs) {
         $hkuClassesPath = "Registry::HKU\$sid\Software\Classes"
         
@@ -3087,17 +3271,19 @@ function Remove-MalwareBrowserEntries {
                     Where-Object { $_.PSChildName -like $pattern }
                 
                 if ($matchingKeys) {
-                    Write-Log "    Found $($matchingKeys.Count) ProgID class(es)" -Level WARNING
+                    Write-Log "    Found $($matchingKeys.Count) user ProgID class(es)" -Level WARNING
                     foreach ($key in $matchingKeys) {
-                        $RemediationResults.Summary.RegistryKeysChecked++
-                        $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "ProgID Class"
-                        if ($result -eq "SUCCESS") { $totalRemoved++ }
+                        $RemediationResults.Summary.BrowserEntriesChecked++
+                        $RemediationResults.Summary.BrowserEntriesFound++
+                        
+                        $null = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "User ProgID Class"
                     }
                 }
             }
         }
     }
     
+    # HKLM ProgID classes
     $hklmClassesPath = "HKLM:\Software\Classes"
     if (Test-Path $hklmClassesPath) {
         foreach ($pattern in $BrowserPatterns) {
@@ -3107,16 +3293,20 @@ function Remove-MalwareBrowserEntries {
             if ($matchingKeys) {
                 Write-Log "  Found $($matchingKeys.Count) HKLM ProgID class(es)" -Level WARNING
                 foreach ($key in $matchingKeys) {
-                    $RemediationResults.Summary.RegistryKeysChecked++
-                    $result = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM ProgID Class"
-                    if ($result -eq "SUCCESS") { $totalRemoved++ }
+                    $RemediationResults.Summary.BrowserEntriesChecked++
+                    $RemediationResults.Summary.BrowserEntriesFound++
+                    
+                    $null = Remove-BrowserEntry -KeyPath $key.PSPath -EntryType "HKLM ProgID Class"
                 }
             }
         }
     }
     
+    # ========================================================================
+    # PHASE 4: UserChoice Associations (Protected)
+    # ========================================================================
+    
     if ($FeatureUsagePatterns.Count -gt 0) {
-
         Write-Log "Phase 4: Checking UserChoice associations..." -Level INFO
         
         foreach ($sid in $userSIDs) {
@@ -3135,35 +3325,46 @@ function Remove-MalwareBrowserEntries {
                             if ($progId) {
                                 foreach ($pattern in $BrowserPatterns) {
                                     if ($progId -like $pattern) {
-                                        Write-Log "    [FOUND] UserChoice for $($ext.PSChildName) : $progId" -Level WARNING
-                                        $RemediationResults.Summary.RegistryKeysChecked++
+                                        $RemediationResults.Summary.BrowserEntriesChecked++
                                         
+                                        Write-Log "    [FOUND] UserChoice for $($ext.PSChildName) : $progId" -Level WARNING
                                         Write-Log "    [INFO] UserChoice key is hash-protected by Windows" -Level INFO
                                         Write-Log "    [INFO] Will be reset when user changes default program" -Level INFO
                                         
                                         $record = New-BrowserRecord -EntryPath $userChoiceKey `
-                                            -EntryType "UserChoice (Protected)" -Status "NOTED"
-                                        $RemediationResults.Registry.NotFound += $record
+                                            -EntryType "UserChoice (Protected)" -Status $StatusLevels.Protected
+                                        $RemediationResults.BrowserEntries.Noted += $record
                                     }
-                                } # End foreach pattern
-                            } # End if progId
+                                }
+                            }
                         } catch {
                             # Silent fail - UserChoice keys are often protected
                         }
-                    } # End if Test-Path UserChoice
-                } # End foreach fileExts
-            } # End if Test-Path FileExts
-        } # End foreach SID
-        
-        Write-Log "========================================" -Level INFO
-        Write-Log "BROWSER ENTRY CLEANUP SUMMARY" -Level INFO
-        Write-Log "  Entries Checked: $($RemediationResults.Summary.RegistryKeysChecked)" -Level INFO
-        Write-Log "  Entries Removed: $totalRemoved" -Level SUCCESS
-        Write-Log "  Note: UserChoice keys are Windows-protected and will reset naturally" -Level INFO
-        Write-Log "========================================" -Level INFO
-    } # End $FeatureUsagePatterns.Count
-
-} # End Remove-MalwareBrowserEntries
+                    }
+                }
+            }
+        }
+    }
+    
+    # ========================================================================
+    # MODULE TIMING & SUMMARY
+    # ========================================================================
+    
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "BrowserEntries" -StartTime $moduleStart -EndTime $moduleEnd
+    
+    Write-Log "" -Level INFO
+    Write-Log "========================================" -Level INFO
+    Write-Log "BROWSER ENTRY CLEANUP SUMMARY" -Level INFO
+    Write-Log "  Entries Checked: $($RemediationResults.Summary.BrowserEntriesChecked)" -Level INFO
+    Write-Log "  Entries Found: $($RemediationResults.Summary.BrowserEntriesFound)" -Level INFO
+    Write-Log "  Entries Removed: $($RemediationResults.Summary.BrowserEntriesRemoved)" -Level SUCCESS
+    Write-Log "  Entries Failed: $($RemediationResults.Summary.BrowserEntriesFailed)" -Level ERROR
+    Write-Log "  Entries Errored: $($RemediationResults.Summary.BrowserEntriesErrored)" -Level ERROR
+    Write-Log "  Entries Not Found: $($RemediationResults.Summary.BrowserEntriesNotFound)" -Level INFO
+    Write-Log "  Note: UserChoice keys are Windows-protected and will reset naturally" -Level INFO
+    Write-Log "========================================" -Level INFO
+}
 
 
 # ============================================================================ #
@@ -3274,9 +3475,9 @@ function Remove-MalwareFileAssociations {
 Write-Log "============================================" -Level INFO
 Write-Log "MALWARE REMEDIATION FRAMEWORK" -Level INFO
 Write-Log "Target: $($MalwareConfig.Name)" -Level INFO
-Write-Log "Version: $($MalwareConfig.Metadata.Version)" -Level INFO        # <-- NEW
-Write-Log "Threat Family: $($MalwareConfig.Metadata.ThreatFamily)" -Level INFO  # <-- NEW
-Write-Log "Severity: $($MalwareConfig.Metadata.Severity)" -Level INFO     # <-- NEW
+Write-Log "Version: $($MalwareConfig.Metadata.Version)" -Level INFO
+Write-Log "Threat Family: $($MalwareConfig.Metadata.ThreatFamily)" -Level INFO
+Write-Log "Severity: $($MalwareConfig.Metadata.Severity)" -Level INFO
 Write-Log "Started: $($RemediationResults.StartTime)" -Level INFO
 Write-Log "============================================" -Level INFO
 
