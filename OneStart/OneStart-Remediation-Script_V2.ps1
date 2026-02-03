@@ -18,6 +18,22 @@ $logFile = Join-Path $env:TEMP "MalwareRemediation_$timestamp.log"
 # MALWARE CONFIGURATION
 # ----------------------------------------------------------------------------
 $MalwareConfig = @{
+
+    # ----------------------------------------------------------------------------
+    # MALWARE CONFIGURATION - Metadata
+    # ----------------------------------------------------------------------------
+
+    # Metadata
+    Metadata = @{
+        Version = "2.0.0"
+        LastUpdated = "2024-01-15"
+        Author = "sentinelrshuser"
+        ThreatFamily = "OneStart.AI"
+        FirstSeen = "2023-10"
+        Severity = "HIGH"
+        Description = "Browser hijacker and PUP that installs unwanted certificates and modifies browser settings"
+    }
+
     Name = "OneStart.AI"
     
     # ----------------------------------------------------------------------------
@@ -241,6 +257,23 @@ $RemediationResults = @{
     # RESULTS TRACKING - Processes
     # ----------------------------------------------------------------------------
 
+    # Module timing
+    ModuleTiming = @{
+        Processes = $null
+        Services = $null
+        Certificates = $null
+        Tasks = $null
+        RegistryPersistence = $null
+        Files = $null
+        RegistryCleanup = $null
+        BrowserEntries = $null
+        FileAssociations = $null
+    }
+
+    # ----------------------------------------------------------------------------
+    # RESULTS TRACKING - Processes
+    # ----------------------------------------------------------------------------
+
     # Detailed process tracking
     Processes = @{
         NotFound = @()
@@ -317,16 +350,37 @@ $RemediationResults = @{
         Failed = @()
         Errored = @()
     }
+
+    # ----------------------------------------------------------------------------
+    # RESULTS TRACKING - Failed Actions
+    # ----------------------------------------------------------------------------
+
+    # Actions which need further review
+    ActionItems = @{
+        SuspiciousCertificates = @()  # Certs that need review
+        ProtectedItems = @()          # Items that couldn't be removed due to protection
+        FailedRemovals = @()          # Items that failed to remove
+        UnexpectedFindings = @()      # Items found that weren't expected
+    }
     
     # Quick summary stats
     Summary = @{
+
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Processes
+        # ----------------------------------------------------------------------------
+
         # Process stats
         ProcessesChecked = 0
         ProcessesFound = 0
-        ProcessesKilled = 0
+        ProcessesTerminated = 0
         ProcessesFailed = 0
         ProcessesErrored = 0
         ProcessesNotFound = 0
+
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Services
+        # ----------------------------------------------------------------------------
         
         # Service stats
         ServicesChecked = 0
@@ -336,13 +390,23 @@ $RemediationResults = @{
         ServicesErrored = 0
         ServicesNotFound = 0
 
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Certificates
+        # ----------------------------------------------------------------------------
+
         # Certificate stats
         CertStoresChecked = 0
         CertificatesScanned = 0
+        CertificatesNotFound = 0
         CertificatesFlagged = 0
         CertificatesRemoved = 0
         CertificatesFailed = 0
         CertificatesErrored = 0
+        
+
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Scheduled Tasks
+        # ----------------------------------------------------------------------------
         
         # Task stats
         TasksChecked = 0
@@ -352,6 +416,10 @@ $RemediationResults = @{
         TasksErrored = 0
         TasksNotFound = 0
 
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Cached Scheduled Tasks
+        # ----------------------------------------------------------------------------
+
         # TaskCache stats
         TaskCacheChecked = 0
         TaskCacheFound = 0
@@ -360,6 +428,10 @@ $RemediationResults = @{
         TaskCacheErrored = 0
         TaskCacheNotFound = 0
         
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Registry Keys/Values
+        # ----------------------------------------------------------------------------
+
         # Registry stats
         RegistryKeysChecked = 0
         RegistryValuesFound = 0
@@ -368,6 +440,10 @@ $RemediationResults = @{
         RegistryValuesErrored = 0
         RegistryValuesNotFound = 0
         
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Files and Folders
+        # ----------------------------------------------------------------------------
+
         # File/Folder stats
         PathsChecked = 0
         PathsFound = 0
@@ -375,6 +451,32 @@ $RemediationResults = @{
         PathsFailed = 0
         PathsErrored = 0
         PathsNotFound = 0
+
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Browser Entries
+        # ----------------------------------------------------------------------------
+
+        # Browser entry stats
+        BrowserEntriesChecked = 0
+        BrowserEntriesRemoved = 0
+        BrowserEntriesFailed = 0
+
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Files Associations
+        # ----------------------------------------------------------------------------
+
+        FileAssociationsChecked = 0
+        FileAssociationsRemoved = 0
+        FileAssociationsFailed = 0
+
+        # ----------------------------------------------------------------------------
+        # SUMMARY STATS - Overall Actions Performed
+        # ----------------------------------------------------------------------------
+
+        # Overall totals (calculated at end)
+        TotalActionsAttempted = 0
+        TotalActionsSuccessful = 0
+        TotalActionsFailed = 0
 
     }
     
@@ -384,6 +486,19 @@ $RemediationResults = @{
     # Timing
     StartTime = Get-Date
     EndTime = $null
+}
+
+# Add after $RemediationResults definition (around line 400)
+$StatusLevels = @{
+    NotApplicable = "NOT_APPLICABLE"  # Component doesn't exist
+    NotFound = "NOT_FOUND"            # Searched but not present
+    Success = "SUCCESS"               # Action completed successfully
+    PartialSuccess = "PARTIAL"        # Some items succeeded, others failed
+    Failed = "FAILED"                 # Action attempted but failed (item still exists)
+    Protected = "PROTECTED"           # Item protected/locked (expected failure)
+    Error = "ERROR"                   # Unexpected exception
+    Skipped = "SKIPPED"               # Intentionally not processed
+    ManualReview = "MANUAL_REVIEW"    # Requires human review
 }
 
 # ============================================================================ #
@@ -911,7 +1026,7 @@ function Stop-MalwareProcess {
                 $record = New-ProcessRecord -ProcessName $processName -Status "KILLED" `
                     -PIDs $pidList -ProcessObjects $processes
                 $RemediationResults.Processes.Killed += $record
-                $RemediationResults.Summary.ProcessesKilled++
+                $RemediationResults.Summary.ProcessesTerminated++
                 
             } else {
                 $survivingPIDs = $stillRunning.Id
@@ -941,7 +1056,7 @@ function Stop-MalwareProcess {
     Write-Log "PROCESS TERMINATION SUMMARY" -Level INFO
     Write-Log "  Checked: $($RemediationResults.Summary.ProcessesChecked)" -Level INFO
     Write-Log "  Found: $($RemediationResults.Summary.ProcessesFound)" -Level INFO
-    Write-Log "  Killed: $($RemediationResults.Summary.ProcessesKilled)" -Level SUCCESS
+    Write-Log "  Killed: $($RemediationResults.Summary.ProcessesTerminated)" -Level SUCCESS
     Write-Log "  Failed: $($RemediationResults.Summary.ProcessesFailed)" -Level ERROR
     Write-Log "  Errored: $($RemediationResults.Summary.ProcessesErrored)" -Level ERROR
     Write-Log "  Not Found: $($RemediationResults.Summary.ProcessesNotFound)" -Level INFO
@@ -2592,6 +2707,9 @@ function Remove-MalwareFileAssociations {
 Write-Log "============================================" -Level INFO
 Write-Log "MALWARE REMEDIATION FRAMEWORK" -Level INFO
 Write-Log "Target: $($MalwareConfig.Name)" -Level INFO
+Write-Log "Version: $($MalwareConfig.Metadata.Version)" -Level INFO        # <-- NEW
+Write-Log "Threat Family: $($MalwareConfig.Metadata.ThreatFamily)" -Level INFO  # <-- NEW
+Write-Log "Severity: $($MalwareConfig.Metadata.Severity)" -Level INFO     # <-- NEW
 Write-Log "Started: $($RemediationResults.StartTime)" -Level INFO
 Write-Log "============================================" -Level INFO
 
@@ -2648,12 +2766,15 @@ $duration = $RemediationResults.EndTime - $RemediationResults.StartTime
 
 Write-Log "============================================" -Level INFO
 Write-Log "REMEDIATION COMPLETE" -Level SUCCESS
+Write-Log "Threat: $($MalwareConfig.Name) ($($MalwareConfig.Metadata.ThreatFamily))" -Level INFO
+Write-Log "Severity: $($MalwareConfig.Metadata.Severity)" -Level INFO
+Write-Log "Script Version: $($MalwareConfig.Metadata.Version)" -Level INFO
 Write-Log "Duration: $($duration.TotalSeconds) seconds" -Level INFO
 Write-Log "Log File: $logFile" -Level INFO
 Write-Log "============================================" -Level INFO
 Write-Log "" -Level INFO
 Write-Log "FINAL SUMMARY" -Level INFO
-Write-Log "Processes: Checked=$($RemediationResults.Summary.ProcessesChecked) Killed=$($RemediationResults.Summary.ProcessesKilled) Failed=$($RemediationResults.Summary.ProcessesFailed)" -Level INFO
+Write-Log "Processes: Checked=$($RemediationResults.Summary.ProcessesChecked) Killed=$($RemediationResults.Summary.ProcessesTerminated) Failed=$($RemediationResults.Summary.ProcessesFailed)" -Level INFO
 Write-Log "Services: Checked=$($RemediationResults.Summary.ServicesChecked) Removed=$($RemediationResults.Summary.ServicesRemoved) Failed=$($RemediationResults.Summary.ServicesFailed)" -Level INFO
 Write-Log "Certificates: Scanned=$($RemediationResults.Summary.CertificatesScanned) Flagged=$($RemediationResults.Summary.CertificatesFlagged) Removed=$($RemediationResults.Summary.CertificatesRemoved) Failed=$($RemediationResults.Summary.CertificatesFailed)" -Level INFO
 Write-Log "Tasks: Checked=$($RemediationResults.Summary.TasksChecked) Removed=$($RemediationResults.Summary.TasksRemoved) Failed=$($RemediationResults.Summary.TasksFailed)" -Level INFO
