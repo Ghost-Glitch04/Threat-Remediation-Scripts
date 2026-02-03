@@ -1143,12 +1143,21 @@ function Stop-MalwareProcess {
     <#
     .SYNOPSIS
     Terminates processes with detailed tracking
+    .DESCRIPTION
+    Stops malicious processes and captures detailed information including:
+    - Process IDs (PIDs)
+    - Process paths and command lines
+    - Termination success/failure status
+    - Module execution timing
     #>
     
     param(
         [Parameter(Mandatory=$true)]
         [array]$ProcessNames
     )
+    
+    # Module timing start
+    $moduleStartTime = Get-Date
     
     Write-Log "========================================" -Level INFO
     Write-Log "PROCESS TERMINATION MODULE" -Level INFO
@@ -1160,41 +1169,46 @@ function Stop-MalwareProcess {
         
         Write-Log "Checking for process: $processName" -Level INFO
         
+        # Check if process is running
         $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
         
         if (-not $processes) {
             Write-Log "  [NOT FOUND] Process not running: $processName" -Level INFO
             
-            $record = New-ProcessRecord -ProcessName $processName -Status "NOT_FOUND"
+            $record = New-ProcessRecord -ProcessName $processName -Status $StatusLevels.NotFound
             $RemediationResults.Processes.NotFound += $record
             $RemediationResults.Summary.ProcessesNotFound++
             continue
         }
         
+        # Process found - capture details
         $pidList = $processes.Id
         $RemediationResults.Summary.ProcessesFound++
         
         Write-Log "  [FOUND] Running instances: $($processes.Count) | PIDs: $($pidList -join ', ')" -Level WARNING
         
+        # Attempt termination
         try {
             $processes | Stop-Process -Force -ErrorAction Stop
             Start-Sleep -Milliseconds 500
             
+            # Verify termination
             $stillRunning = Get-Process -Name $processName -ErrorAction SilentlyContinue
             
             if (-not $stillRunning) {
                 Write-Log "  [SUCCESS] Terminated: $processName (PIDs: $($pidList -join ', '))" -Level SUCCESS
                 
-                $record = New-ProcessRecord -ProcessName $processName -Status "KILLED" `
+                $record = New-ProcessRecord -ProcessName $processName -Status $StatusLevels.Success `
                     -PIDs $pidList -ProcessObjects $processes
                 $RemediationResults.Processes.Terminated += $record
                 $RemediationResults.Summary.ProcessesTerminated++
                 
             } else {
+                # Process survived termination
                 $survivingPIDs = $stillRunning.Id
                 Write-Log "  [FAILED] Still running: $processName (PIDs: $($survivingPIDs -join ', '))" -Level ERROR
                 
-                $record = New-ProcessRecord -ProcessName $processName -Status "FAILED" `
+                $record = New-ProcessRecord -ProcessName $processName -Status $StatusLevels.Failed `
                     -PIDs $survivingPIDs -ProcessObjects $stillRunning `
                     -ErrorMessage "Process survived termination attempt"
                 $RemediationResults.Processes.Failed += $record
@@ -1202,10 +1216,11 @@ function Stop-MalwareProcess {
             }
             
         } catch {
+            # Exception during termination
             $errorMsg = $_.Exception.Message
             Write-Log "  [ERROR] Exception during termination: $processName - $errorMsg" -Level ERROR
             
-            $record = New-ProcessRecord -ProcessName $processName -Status "ERROR" `
+            $record = New-ProcessRecord -ProcessName $processName -Status $StatusLevels.Error `
                 -PIDs $pidList -ProcessObjects $processes -ErrorMessage $errorMsg
             $RemediationResults.Processes.Errored += $record
             $RemediationResults.Summary.ProcessesErrored++
@@ -1214,11 +1229,16 @@ function Stop-MalwareProcess {
         }
     }
     
+    # Module timing end
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStartTime -EndTime $moduleEndTime
+    
+    # Module summary
     Write-Log "========================================" -Level INFO
     Write-Log "PROCESS TERMINATION SUMMARY" -Level INFO
     Write-Log "  Checked: $($RemediationResults.Summary.ProcessesChecked)" -Level INFO
     Write-Log "  Found: $($RemediationResults.Summary.ProcessesFound)" -Level INFO
-    Write-Log "  Killed: $($RemediationResults.Summary.ProcessesTerminated)" -Level SUCCESS
+    Write-Log "  Terminated: $($RemediationResults.Summary.ProcessesTerminated)" -Level SUCCESS
     Write-Log "  Failed: $($RemediationResults.Summary.ProcessesFailed)" -Level ERROR
     Write-Log "  Errored: $($RemediationResults.Summary.ProcessesErrored)" -Level ERROR
     Write-Log "  Not Found: $($RemediationResults.Summary.ProcessesNotFound)" -Level INFO
@@ -2963,7 +2983,7 @@ Write-Log "Log File: $logFile" -Level INFO
 Write-Log "============================================" -Level INFO
 Write-Log "" -Level INFO
 Write-Log "FINAL SUMMARY" -Level INFO
-Write-Log "Processes: Checked=$($RemediationResults.Summary.ProcessesChecked) Killed=$($RemediationResults.Summary.ProcessesTerminated) Failed=$($RemediationResults.Summary.ProcessesFailed)" -Level INFO
+Write-Log "Processes: Checked=$($RemediationResults.Summary.ProcessesChecked) Terminated=$($RemediationResults.Summary.ProcessesTerminated) Failed=$($RemediationResults.Summary.ProcessesFailed)" -Level INFO
 Write-Log "Services: Checked=$($RemediationResults.Summary.ServicesChecked) Removed=$($RemediationResults.Summary.ServicesRemoved) Failed=$($RemediationResults.Summary.ServicesFailed)" -Level INFO
 Write-Log "Certificates: Scanned=$($RemediationResults.Summary.CertificatesScanned) Flagged=$($RemediationResults.Summary.CertificatesFlagged) Removed=$($RemediationResults.Summary.CertificatesRemoved) Failed=$($RemediationResults.Summary.CertificatesFailed)" -Level INFO
 Write-Log "Tasks: Checked=$($RemediationResults.Summary.TasksChecked) Removed=$($RemediationResults.Summary.TasksRemoved) Failed=$($RemediationResults.Summary.TasksFailed)" -Level INFO
