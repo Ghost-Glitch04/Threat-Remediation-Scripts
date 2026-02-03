@@ -1093,76 +1093,18 @@ function New-BrowserRecord {
         [string]$EntryType,
         [string]$Status,
         [string]$ErrorMessage = $null,
-        [hashtable]$Details = @{}
+        [string]$ProgId = $null,
+        [string]$Extension = $null
     )
     
     return @{
         EntryPath = $EntryPath
         EntryType = $EntryType
         Status = $Status
+        ProgId = $ProgId
+        Extension = $Extension
         Timestamp = Get-Date
         ErrorMessage = $ErrorMessage
-        Details = $Details
-    }
-}
-
-# ============================================================================ #
-# HELPER FUNCTIONS - Browser Entries - Remove-BrowserEntry
-# ============================================================================ #
-
-function Remove-BrowserEntry {
-    <#
-    .SYNOPSIS
-    Removes a browser registry entry with detailed tracking
-    #>
-    param(
-        [string]$KeyPath,
-        [string]$EntryType
-    )
-    
-    if (-not (Test-Path $KeyPath)) {
-        return "NOT_FOUND"
-    }
-    
-    try {
-        # Capture details before removal
-        $keyDetails = Get-RegistryKeyDetails -KeyPath $KeyPath
-        
-        Write-Log "    [FOUND] $EntryType : $KeyPath" -Level WARNING
-        Write-Log "      Subkeys: $($keyDetails.SubkeyCount) | Values: $($keyDetails.ValueCount)" -Level INFO
-        
-        Remove-Item -Path $KeyPath -Recurse -Force -ErrorAction Stop
-        Start-Sleep -Milliseconds 200
-        
-        if (-not (Test-Path $KeyPath)) {
-            Write-Log "    [SUCCESS] Removed: $KeyPath" -Level SUCCESS
-            
-            $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
-                -Status $StatusLevels.Success -Details $keyDetails
-            $RemediationResults.BrowserEntries.Removed += $record
-            $RemediationResults.Summary.BrowserEntriesRemoved++
-            return "SUCCESS"
-        } else {
-            Write-Log "    [FAILED] Still exists: $KeyPath" -Level ERROR
-            
-            $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
-                -Status $StatusLevels.Failed -ErrorMessage "Key still exists after removal" `
-                -Details $keyDetails
-            $RemediationResults.BrowserEntries.Failed += $record
-            $RemediationResults.Summary.BrowserEntriesFailed++
-            return "FAILED"
-        }
-    } catch {
-        $errorMsg = $_.Exception.Message
-        Write-Log "    [ERROR] Failed to remove: $errorMsg" -Level ERROR
-        
-        $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
-            -Status $StatusLevels.Error -ErrorMessage $errorMsg
-        $RemediationResults.BrowserEntries.Errored += $record
-        $RemediationResults.Summary.BrowserEntriesErrored++
-        
-        $RemediationResults.CriticalErrors += "Browser Entry: $KeyPath - $errorMsg"
-        return "ERROR"
     }
 }
 
@@ -3238,14 +3180,10 @@ function Remove-BrowserEntry {
     )
     
     if (-not (Test-Path $KeyPath)) {
-        Write-Log "    [NOT FOUND] $EntryType : $KeyPath" -Level INFO
-        
-        $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType -Status $StatusLevels.NotFound
-        $RemediationResults.BrowserEntries.NotFound += $record
-        $RemediationResults.Summary.BrowserEntriesNotFound++
-        
-        return $StatusLevels.NotFound
+        return "NOT_FOUND"
     }
+    
+    $RemediationResults.Summary.BrowserEntriesFound++
     
     try {
         Write-Log "    [FOUND] $EntryType : $KeyPath" -Level WARNING
@@ -3256,33 +3194,30 @@ function Remove-BrowserEntry {
         if (-not (Test-Path $KeyPath)) {
             Write-Log "    [SUCCESS] Removed: $KeyPath" -Level SUCCESS
             
-            $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType -Status $StatusLevels.Success
+            $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType -Status "REMOVED"
             $RemediationResults.BrowserEntries.Removed += $record
             $RemediationResults.Summary.BrowserEntriesRemoved++
-            
-            return $StatusLevels.Success
+            return "SUCCESS"
         } else {
             Write-Log "    [FAILED] Still exists: $KeyPath" -Level ERROR
             
             $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
-                -Status $StatusLevels.Failed -ErrorMessage "Key still exists after removal"
+                -Status "FAILED" -ErrorMessage "Key still exists after removal"
             $RemediationResults.BrowserEntries.Failed += $record
             $RemediationResults.Summary.BrowserEntriesFailed++
-            
-            return $StatusLevels.Failed
+            return "FAILED"
         }
     } catch {
         $errorMsg = $_.Exception.Message
         Write-Log "    [ERROR] Failed to remove: $errorMsg" -Level ERROR
         
         $record = New-BrowserRecord -EntryPath $KeyPath -EntryType $EntryType `
-            -Status $StatusLevels.Error -ErrorMessage $errorMsg
+            -Status "ERROR" -ErrorMessage $errorMsg
         $RemediationResults.BrowserEntries.Errored += $record
         $RemediationResults.Summary.BrowserEntriesErrored++
         
         $RemediationResults.CriticalErrors += "Browser Entry: $KeyPath - $errorMsg"
-        
-        return $StatusLevels.Error
+        return "ERROR"
     }
 }
 
