@@ -277,7 +277,7 @@ $RemediationResults = @{
     # Detailed process tracking
     Processes = @{
         NotFound = @()
-        Killed = @()
+        Terminated = @()
         Failed = @()
         Errored = @()
     }
@@ -371,7 +371,13 @@ $RemediationResults = @{
     # RESULTS TRACKING - File Associations tracking
     # ----------------------------------------------------------------------------
 
-
+    # Detailed file association tracking
+    FileAssociations = @{
+        NotFound = @()
+        Removed = @()
+        Failed = @()
+        Errored = @()
+    }
 
     # ----------------------------------------------------------------------------
     # RESULTS TRACKING - Failed Actions
@@ -478,18 +484,24 @@ $RemediationResults = @{
         # SUMMARY STATS - Browser Entries
         # ----------------------------------------------------------------------------
 
-        # Browser entry stats
+         # Browser entry stats
         BrowserEntriesChecked = 0
+        BrowserEntriesFound = 0
         BrowserEntriesRemoved = 0
         BrowserEntriesFailed = 0
+        BrowserEntriesErrored = 0
+        BrowserEntriesNotFound = 0
 
         # ----------------------------------------------------------------------------
         # SUMMARY STATS - File Associations
         # ----------------------------------------------------------------------------
 
         FileAssociationsChecked = 0
+        FileAssociationsFound = 0
         FileAssociationsRemoved = 0
         FileAssociationsFailed = 0
+        FileAssociationsErrored = 0
+        FileAssociationsNotFound = 0
 
         # ----------------------------------------------------------------------------
         # SUMMARY STATS - Overall Summary of Actions Performed
@@ -531,6 +543,10 @@ $StatusLevels = @{
 # HELPER FUNCTIONS - General
 # ============================================================================ #
 
+# ============================================================================ #
+# HELPER FUNCTIONS - General - Write-Log
+# ============================================================================ #
+
 function Write-Log {
     <#
     .SYNOPSIS
@@ -549,7 +565,46 @@ function Write-Log {
 }
 
 # ============================================================================ #
+# HELPER FUNCTIONS - General - TimedModule
+# ============================================================================ #
+
+function Invoke-TimedModule {
+    <#
+    .SYNOPSIS
+    Executes a module and tracks its execution time
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ModuleName,
+        
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$ScriptBlock
+    )
+    
+    Write-Log "Starting module: $ModuleName" -Level INFO
+    $startTime = Get-Date
+    
+    try {
+        & $ScriptBlock
+        $endTime = Get-Date
+        $duration = ($endTime - $startTime).TotalSeconds
+        $RemediationResults.ModuleTiming[$ModuleName] = $duration
+        Write-Log "Module '$ModuleName' completed in $duration seconds" -Level INFO
+    } catch {
+        $endTime = Get-Date
+        $duration = ($endTime - $startTime).TotalSeconds
+        $RemediationResults.ModuleTiming[$ModuleName] = $duration
+        Write-Log "Module '$ModuleName' failed after $duration seconds: $($_.Exception.Message)" -Level ERROR
+        throw
+    }
+}
+
+# ============================================================================ #
 # HELPER FUNCTIONS - Processes
+# ============================================================================ #
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Processes - New-ProcessRecord
 # ============================================================================ #
 
 function New-ProcessRecord {
@@ -592,6 +647,10 @@ function New-ProcessRecord {
 # HELPER FUNCTIONS - Services
 # ============================================================================ #
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Services - Get-ServiceDetails
+# ============================================================================ #
+
 function Get-ServiceDetails {
     <#
     .SYNOPSIS
@@ -625,6 +684,10 @@ function Get-ServiceDetails {
     }
 }
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Services - New-ServiceRecord
+# ============================================================================ #
+
 function New-ServiceRecord {
     <#
     .SYNOPSIS
@@ -657,6 +720,10 @@ function New-ServiceRecord {
 # HELPER FUNCTIONS - Certificates
 # ============================================================================ #
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Certificates - Get-CertificateAge
+# ============================================================================ #
+
 function Get-CertificateAge {
     <#
     .SYNOPSIS
@@ -667,6 +734,10 @@ function Get-CertificateAge {
     $age = (Get-Date) - $NotBefore
     return [Math]::Round($age.TotalDays, 0)
 }
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Certificates - Get-CertificateValidityPeriod
+# ============================================================================ #
 
 function Get-CertificateValidityPeriod {
     <#
@@ -681,6 +752,10 @@ function Get-CertificateValidityPeriod {
     $validity = $NotAfter - $NotBefore
     return [Math]::Round($validity.TotalDays / 365.25, 1)
 }
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Certificates - Test-SuspiciousSubject
+# ============================================================================ #
 
 function Test-SuspiciousSubject {
     <#
@@ -699,6 +774,10 @@ function Test-SuspiciousSubject {
     }
     return $false
 }
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Certificates - New-CertificateRecord
+# ============================================================================ #
 
 function New-CertificateRecord {
     <#
@@ -736,9 +815,12 @@ function New-CertificateRecord {
     }
 }
 
-
 # ============================================================================ #
 # HELPER FUNCTIONS - Scheduled Tasks
+# ============================================================================ #
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Scheduled Tasks - Get-TaskDetails
 # ============================================================================ #
 
 function Get-TaskDetails {
@@ -774,6 +856,10 @@ function Get-TaskDetails {
     }
 }
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Scheduled Tasks - New-TaskRecord
+# ============================================================================ #
+
 function New-TaskRecord {
     <#
     .SYNOPSIS
@@ -799,6 +885,10 @@ function New-TaskRecord {
         ErrorMessage = $ErrorMessage
     }
 }
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Scheduled Tasks - New-TaskCacheRecord
+# ============================================================================ #
 
 function New-TaskCacheRecord {
     <#
@@ -827,6 +917,10 @@ function New-TaskCacheRecord {
 # HELPER FUNCTIONS - Registry Keys/Values
 # ============================================================================ #
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Registry Keys/Values - New-RegistryRecord
+# ============================================================================ #
+
 function New-RegistryRecord {
     <#
     .SYNOPSIS
@@ -850,6 +944,10 @@ function New-RegistryRecord {
     }
 }
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Registry Keys/Values - New-RegistryKeyRecord
+# ============================================================================ #
+
 function New-RegistryKeyRecord {
     <#
     .SYNOPSIS
@@ -872,6 +970,11 @@ function New-RegistryKeyRecord {
         ErrorMessage = $ErrorMessage
     }
 }
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Registry Keys/Values - Get-RegistryKeyDetails
+# ============================================================================ #
+
 function Get-RegistryKeyDetails {
     <#
     .SYNOPSIS
@@ -908,6 +1011,10 @@ function Get-RegistryKeyDetails {
     }
 }
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Registry Keys/Values - Get-UserSIDs
+# ============================================================================ #
+
 function Get-UserSIDs {
     <#
     .SYNOPSIS
@@ -928,6 +1035,10 @@ function Get-UserSIDs {
 
 # ============================================================================ #
 # HELPER FUNCTIONS - Files/Folders
+# ============================================================================ #
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Files/Folders - New-FileRecord
 # ============================================================================ #
 
 function New-FileRecord {
@@ -953,6 +1064,10 @@ function New-FileRecord {
     }
 }
 
+# ============================================================================ #
+# HELPER FUNCTIONS - Files/Folders - Get-UserProfiles
+# ============================================================================ #
+
 function Get-UserProfiles {
     <#
     .SYNOPSIS
@@ -972,6 +1087,10 @@ function Get-UserProfiles {
 
 # ============================================================================ #
 # HELPER FUNCTIONS - Browser Entries
+# ============================================================================ #
+
+# ============================================================================ #
+# HELPER FUNCTIONS - Browser Entries - New-BrowserRecord
 # ============================================================================ #
 
 function New-BrowserRecord {
@@ -994,6 +1113,10 @@ function New-BrowserRecord {
         ErrorMessage = $ErrorMessage
     }
 }
+
+# ============================================================================ #
+# PRIMARY FUNCTIONS
+# ============================================================================ #
 
 # ============================================================================ #
 # PROCESS TERMINATION
@@ -1223,7 +1346,7 @@ function Stop-MalwareService {
 }
 
 # ============================================================================ #
-# CERTIFICATE ANALYSIS & REMEDIATION (ENHANCED)
+# CERTIFICATE ANALYSIS & REMEDIATION
 # ============================================================================ #
 
 function Test-ProtectedCertificate {
@@ -2778,6 +2901,33 @@ if ($MalwareConfig.ApplicationAssociationPatterns) {
     Remove-MalwareFileAssociations -AssociationPatterns $MalwareConfig.ApplicationAssociationPatterns
     Start-Sleep -Seconds 2
 }
+
+# ============================================================================ #
+# CALCULATIONS FOR FINAL REPORT
+# ============================================================================ #
+
+# Calculate overall totals
+$RemediationResults.Summary.TotalActionsAttempted = 
+    $RemediationResults.Summary.ProcessesChecked +
+    $RemediationResults.Summary.ServicesChecked +
+    $RemediationResults.Summary.TasksChecked +
+    $RemediationResults.Summary.RegistryKeysChecked +
+    $RemediationResults.Summary.PathsChecked +
+    $RemediationResults.Summary.FileAssociationsChecked
+
+$RemediationResults.Summary.TotalActionsSuccessful = 
+    $RemediationResults.Summary.ProcessesTerminated +
+    $RemediationResults.Summary.ServicesRemoved +
+    $RemediationResults.Summary.TasksRemoved +
+    $RemediationResults.Summary.RegistryValuesRemoved +
+    $RemediationResults.Summary.PathsRemoved
+
+$RemediationResults.Summary.TotalActionsFailed = 
+    $RemediationResults.Summary.ProcessesFailed +
+    $RemediationResults.Summary.ServicesFailed +
+    $RemediationResults.Summary.TasksFailed +
+    $RemediationResults.Summary.RegistryValuesFailed +
+    $RemediationResults.Summary.PathsFailed
 
 # ============================================================================ #
 # FINAL REPORT
