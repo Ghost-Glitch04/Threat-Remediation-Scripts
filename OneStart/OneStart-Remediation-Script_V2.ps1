@@ -1856,10 +1856,24 @@ function Remove-MalwareCertificates {
 # ============================================================================ #
 
 function Remove-MalwareTask {
+    <#
+    .SYNOPSIS
+    Removes malicious scheduled tasks with detailed tracking
+    .DESCRIPTION
+    Unregisters scheduled tasks matching patterns and cleans up TaskCache registry:
+    - Searches for tasks by pattern
+    - Unregisters matched tasks
+    - Cleans orphaned TaskCache registry entries
+    - Module execution timing
+    #>
+    
     param(
         [Parameter(Mandatory=$true)]
         [array]$TaskPatterns
     )
+    
+    # Module timing start
+    $moduleStartTime = Get-Date
     
     Write-Log "========================================" -Level INFO
     Write-Log "SCHEDULED TASK REMEDIATION MODULE" -Level INFO
@@ -1869,15 +1883,19 @@ function Remove-MalwareTask {
     # Track all successfully removed task names for Phase 2
     $removedTaskNames = @()
 
-# ========================================================================
-# PHASE 1: Task Detection and Removal
-# ========================================================================
+    # ========================================================================
+    # PHASE 1: Task Detection and Removal
+    # ========================================================================
+    
+    Write-Log "" -Level INFO
+    Write-Log "Phase 1: Task Detection and Removal" -Level INFO
     
     foreach ($pattern in $TaskPatterns) {
         $RemediationResults.Summary.TasksChecked++
         
         Write-Log "Checking for task pattern: $pattern" -Level INFO
         
+        # Search for matching tasks
         $matchingTasks = @()
         try {
             $allTasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
@@ -1891,7 +1909,7 @@ function Remove-MalwareTask {
         if ($matchingTasks.Count -eq 0) {
             Write-Log "  [NOT FOUND] No tasks match pattern: $pattern" -Level INFO
             
-            $record = New-TaskRecord -TaskName $pattern -Status "NOT_FOUND"
+            $record = New-TaskRecord -TaskName $pattern -Status $StatusLevels.NotFound
             $RemediationResults.Tasks.NotFound += $record
             $RemediationResults.Summary.TasksNotFound++
             continue
@@ -1899,11 +1917,13 @@ function Remove-MalwareTask {
         
         Write-Log "  [FOUND] $($matchingTasks.Count) task(s) match pattern: $pattern" -Level WARNING
         
+        # Process each matched task
         foreach ($task in $matchingTasks) {
             $taskName = $task.TaskName
             $taskPath = $task.TaskPath
             $RemediationResults.Summary.TasksFound++
             
+            # Capture task details before removal
             $taskDetails = Get-TaskDetails -TaskName $taskName
             
             Write-Log "    Task: $taskPath$taskName" -Level INFO
@@ -1919,6 +1939,7 @@ function Remove-MalwareTask {
                 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop
                 Start-Sleep -Milliseconds 500
                 
+                # Verify removal
                 $taskCheck = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
                 if (-not $taskCheck) {
                     Write-Log "    [SUCCESS] Task unregistered" -Level SUCCESS
@@ -1929,15 +1950,17 @@ function Remove-MalwareTask {
                     $overallSuccess = $false
                 }
             } catch {
-                Write-Log "    [ERROR] Failed to unregister: $($_.Exception.Message)" -Level ERROR
+                $errorMsg = $_.Exception.Message
+                Write-Log "    [ERROR] Failed to unregister: $errorMsg" -Level ERROR
                 $removalResult = "ERROR"
                 $overallSuccess = $false
             }
             
+            # Track results
             if ($overallSuccess -and $removalResult -eq "SUCCESS") {
                 Write-Log "    [COMPLETE] Task removed: $taskName" -Level SUCCESS
                 
-                $record = New-TaskRecord -TaskName $taskName -Status "REMOVED" `
+                $record = New-TaskRecord -TaskName $taskName -Status $StatusLevels.Success `
                     -TaskDetails $taskDetails -RemovalResult $removalResult
                 $RemediationResults.Tasks.Removed += $record
                 $RemediationResults.Summary.TasksRemoved++
@@ -1948,7 +1971,7 @@ function Remove-MalwareTask {
             } elseif ($removalResult -eq "FAILED") {
                 Write-Log "    [FAILED] Task removal incomplete: $taskName" -Level ERROR
                 
-                $record = New-TaskRecord -TaskName $taskName -Status "FAILED" `
+                $record = New-TaskRecord -TaskName $taskName -Status $StatusLevels.Failed `
                     -TaskDetails $taskDetails -RemovalResult $removalResult `
                     -ErrorMessage "Task still exists after removal"
                 $RemediationResults.Tasks.Failed += $record
@@ -1957,7 +1980,7 @@ function Remove-MalwareTask {
             } else {
                 Write-Log "    [ERROR] Task removal error: $taskName" -Level ERROR
                 
-                $record = New-TaskRecord -TaskName $taskName -Status "ERROR" `
+                $record = New-TaskRecord -TaskName $taskName -Status $StatusLevels.Error `
                     -TaskDetails $taskDetails -RemovalResult $removalResult `
                     -ErrorMessage "Removal: $removalResult"
                 $RemediationResults.Tasks.Errored += $record
@@ -1965,30 +1988,42 @@ function Remove-MalwareTask {
                 
                 $RemediationResults.CriticalErrors += "Task: $taskName - Removal: $removalResult"
             }
-        }  # <-- INNER LOOP ENDS HERE (foreach $task)
-    }  # <-- OUTER LOOP ENDS HERE (foreach $pattern)
+        }
+    }
     
     # ========================================================================
     # PHASE 2: TaskCache Cleanup
     # ========================================================================
     
+    Write-Log "" -Level INFO
+    Write-Log "Phase 2: TaskCache Cleanup" -Level INFO
+    
     if ($removedTaskNames.Count -gt 0) {
+        Write-Log "Cleaning TaskCache for $($removedTaskNames.Count) removed task(s)..." -Level INFO
         Remove-TaskCacheOrphans -TaskNames $removedTaskNames
+    } else {
+        Write-Log "No tasks were removed - TaskCache cleanup skipped" -Level INFO
     }
-        
-Write-Log "========================================" -Level INFO
-Write-Log "SCHEDULED TASK REMEDIATION SUMMARY" -Level INFO
-Write-Log "  Checked: $($RemediationResults.Summary.TasksChecked)" -Level INFO
-Write-Log "  Found: $($RemediationResults.Summary.TasksFound)" -Level INFO
-Write-Log "  Removed: $($RemediationResults.Summary.TasksRemoved)" -Level SUCCESS
-Write-Log "  Failed: $($RemediationResults.Summary.TasksFailed)" -Level ERROR
-Write-Log "  Errored: $($RemediationResults.Summary.TasksErrored)" -Level ERROR
-Write-Log "  Not Found: $($RemediationResults.Summary.TasksNotFound)" -Level INFO
-Write-Log "  ---" -Level INFO
-Write-Log "  TaskCache Checked: $($RemediationResults.Summary.TaskCacheChecked)" -Level INFO
-Write-Log "  TaskCache Removed: $($RemediationResults.Summary.TaskCacheRemoved)" -Level SUCCESS
-Write-Log "  TaskCache Failed: $($RemediationResults.Summary.TaskCacheFailed)" -Level ERROR
-Write-Log "========================================" -Level INFO
+    
+    # Module timing end
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Tasks" -StartTime $moduleStartTime -EndTime $moduleEndTime
+    
+    # Summary
+    Write-Log "" -Level INFO
+    Write-Log "========================================" -Level INFO
+    Write-Log "SCHEDULED TASK REMEDIATION SUMMARY" -Level INFO
+    Write-Log "  Patterns Checked: $($RemediationResults.Summary.TasksChecked)" -Level INFO
+    Write-Log "  Tasks Found: $($RemediationResults.Summary.TasksFound)" -Level INFO
+    Write-Log "  Tasks Removed: $($RemediationResults.Summary.TasksRemoved)" -Level SUCCESS
+    Write-Log "  Tasks Failed: $($RemediationResults.Summary.TasksFailed)" -Level ERROR
+    Write-Log "  Tasks Errored: $($RemediationResults.Summary.TasksErrored)" -Level ERROR
+    Write-Log "  Tasks Not Found: $($RemediationResults.Summary.TasksNotFound)" -Level INFO
+    Write-Log "  ---" -Level INFO
+    Write-Log "  TaskCache Checked: $($RemediationResults.Summary.TaskCacheChecked)" -Level INFO
+    Write-Log "  TaskCache Removed: $($RemediationResults.Summary.TaskCacheRemoved)" -Level SUCCESS
+    Write-Log "  TaskCache Failed: $($RemediationResults.Summary.TaskCacheFailed)" -Level ERROR
+    Write-Log "========================================" -Level INFO
 }
 
 function Remove-TaskCacheOrphans {
@@ -1997,7 +2032,11 @@ function Remove-TaskCacheOrphans {
     Removes orphaned TaskCache registry entries
     .DESCRIPTION
     Cleans up TaskCache registry entries that may remain after task removal.
-    Uses .NET Registry class for direct access.
+    Uses .NET Registry class for direct access to:
+    - Tree entries (task metadata)
+    - Tasks entries (task binaries)
+    - Plain entries (plaintext triggers)
+    - Boot/Logon entries (startup triggers)
     #>
     
     param(
@@ -2005,7 +2044,7 @@ function Remove-TaskCacheOrphans {
         [array]$TaskNames
     )
     
-    Write-Log "  [TASKCACHE] Checking for orphaned TaskCache entries..." -Level INFO
+    Write-Log "  Checking for orphaned TaskCache entries..." -Level INFO
     
     $baseKeyPath = "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache"
     
@@ -2015,6 +2054,7 @@ function Remove-TaskCacheOrphans {
         Write-Log "    Checking TaskCache for: $taskName" -Level INFO
         
         try {
+            # Check Tree entry first to get GUID
             $treePath = "$baseKeyPath\Tree\$taskName"
             $regKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($treePath, $false)
             
@@ -2022,7 +2062,7 @@ function Remove-TaskCacheOrphans {
                 Write-Log "      [NOT FOUND] No TaskCache entry" -Level INFO
                 
                 $record = New-TaskCacheRecord -TaskName $taskName -GUID "N/A" `
-                    -CacheType "Tree" -Status "NOT_FOUND"
+                    -CacheType "Tree" -Status $StatusLevels.NotFound
                 $RemediationResults.TaskCache.NotFound += $record
                 $RemediationResults.Summary.TaskCacheNotFound++
                 continue
@@ -2030,10 +2070,13 @@ function Remove-TaskCacheOrphans {
             
             $RemediationResults.Summary.TaskCacheFound++
             
+            # Get task GUID
             $taskId = $null
             try {
                 $taskId = $regKey.GetValue("Id")
-            } catch {}
+            } catch {
+                Write-Log "      [WARNING] Could not read task GUID" -Level WARNING
+            }
             $regKey.Close()
             
             $guidString = if ($taskId) { "{$taskId}" } else { "UNKNOWN" }
@@ -2042,6 +2085,7 @@ function Remove-TaskCacheOrphans {
             $removalSuccess = $true
             $removedCount = 0
             
+            # Remove related TaskCache entries
             if ($taskId) {
                 $relatedSubKeys = @(
                     @{Path = "$baseKeyPath\Tasks\$guidString"; Type = "Tasks"},
@@ -2057,7 +2101,7 @@ function Remove-TaskCacheOrphans {
                         $removedCount++
                         
                         $record = New-TaskCacheRecord -TaskName $taskName -GUID $guidString `
-                            -CacheType $subKey.Type -Status "REMOVED"
+                            -CacheType $subKey.Type -Status $StatusLevels.Success
                         $RemediationResults.TaskCache.Removed += $record
                         $RemediationResults.Summary.TaskCacheRemoved++
                     } catch {
@@ -2068,25 +2112,28 @@ function Remove-TaskCacheOrphans {
                 }
             }
             
+            # Remove Tree entry last
             try {
                 [Microsoft.Win32.Registry]::LocalMachine.DeleteSubKeyTree($treePath, $false)
                 Write-Log "        [SUCCESS] Removed Tree entry" -Level SUCCESS
                 $removedCount++
                 
                 $record = New-TaskCacheRecord -TaskName $taskName -GUID $guidString `
-                    -CacheType "Tree" -Status "REMOVED"
+                    -CacheType "Tree" -Status $StatusLevels.Success
                 $RemediationResults.TaskCache.Removed += $record
                 $RemediationResults.Summary.TaskCacheRemoved++
             } catch {
-                Write-Log "        [FAILED] Tree entry: $($_.Exception.Message)" -Level ERROR
+                $errorMsg = $_.Exception.Message
+                Write-Log "        [FAILED] Tree entry: $errorMsg" -Level ERROR
                 
                 $record = New-TaskCacheRecord -TaskName $taskName -GUID $guidString `
-                    -CacheType "Tree" -Status "FAILED" -ErrorMessage $_.Exception.Message
+                    -CacheType "Tree" -Status $StatusLevels.Failed -ErrorMessage $errorMsg
                 $RemediationResults.TaskCache.Failed += $record
                 $RemediationResults.Summary.TaskCacheFailed++
                 $removalSuccess = $false
             }
             
+            # Final status
             if ($removalSuccess) {
                 Write-Log "      [COMPLETE] TaskCache cleaned: $removedCount entries" -Level SUCCESS
             } else {
@@ -2094,20 +2141,23 @@ function Remove-TaskCacheOrphans {
             }
             
         } catch {
-            Write-Log "      [ERROR] TaskCache access failed: $($_.Exception.Message)" -Level ERROR
+            $errorMsg = $_.Exception.Message
+            Write-Log "      [ERROR] TaskCache access failed: $errorMsg" -Level ERROR
             
             $record = New-TaskCacheRecord -TaskName $taskName -GUID "ERROR" `
-                -CacheType "Unknown" -Status "ERROR" -ErrorMessage $_.Exception.Message
+                -CacheType "Unknown" -Status $StatusLevels.Error -ErrorMessage $errorMsg
             $RemediationResults.TaskCache.Errored += $record
             $RemediationResults.Summary.TaskCacheErrored++
         }
     }
 
     # TaskCache cleanup summary
-    Write-Log "  [TASKCACHE] Cleanup complete:" -Level INFO
+    Write-Log "  TaskCache cleanup complete:" -Level INFO
     Write-Log "    Checked: $($RemediationResults.Summary.TaskCacheChecked)" -Level INFO
+    Write-Log "    Found: $($RemediationResults.Summary.TaskCacheFound)" -Level INFO
     Write-Log "    Removed: $($RemediationResults.Summary.TaskCacheRemoved)" -Level SUCCESS
     Write-Log "    Failed: $($RemediationResults.Summary.TaskCacheFailed)" -Level ERROR
+    Write-Log "    Not Found: $($RemediationResults.Summary.TaskCacheNotFound)" -Level INFO
 }
 
 # ============================================================================ #
