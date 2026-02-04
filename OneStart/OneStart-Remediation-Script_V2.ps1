@@ -2866,21 +2866,32 @@ function Remove-MalwareFiles {
 }
 
 # ============================================================================ #
-#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION)
+#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS)
 # ============================================================================ #
 
 # ============================================================================ #
-#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION) - Remove-RegistryKeyRecursive
+#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS) - Remove-RegistryKeyRecursive
 # ============================================================================ #
 
 function Remove-RegistryKeyRecursive {
     <#
     .SYNOPSIS
     Removes a registry key and all subkeys with detailed tracking
+
     .DESCRIPTION
-    Attempts to recursively delete a registry key. Captures metadata before
-    removal and tracks the outcome (removed, failed, not found, error).
-    Handles kernel-level protection gracefully.
+    Attempts to remove a registry key recursively. Captures detailed metadata
+    before removal and tracks the outcome. Uses $StatusLevels constants for
+    consistent status reporting.
+    
+    .PARAMETER KeyPath
+    Full registry path to the key (e.g., "HKLM:\Software\Malware")
+    
+    .RETURNS
+    Status string from $StatusLevels (Success, NotFound, Failed, Error)
+    
+    .NOTES
+    Some registry keys may be protected at the kernel level and cannot be removed
+    without specialized tools or safe mode.
 
     #>
     param(
@@ -2888,15 +2899,15 @@ function Remove-RegistryKeyRecursive {
         [string]$KeyPath
     )
 
-    # Increment counter for every key we check
+    # Increment counter for each key we check
     $RemediationResults.Summary.RegistryKeysChecked++
     
     Write-Log "  Checking: $KeyPath" -Level INFO
     
-    # Capture key details before attempting removal (metadata for tracking)
+    # Capture key metadata before attempting removal
     $keyDetails = Get-RegistryKeyDetails -KeyPath $KeyPath
-
-    # If key doesn't exist, record NOT_FOUND and return
+    
+    # If key doesn't exist, record and return
     if (-not $keyDetails.Exists) {
         Write-Log "    [$($StatusLevels.NotFound)] Key does not exist" -Level INFO
         
@@ -2912,7 +2923,7 @@ function Remove-RegistryKeyRecursive {
         # Attempt recursive removal
         Remove-Item -Path $KeyPath -Recurse -Force -ErrorAction Stop
         Start-Sleep -Milliseconds 200  # Brief pause to allow filesystem sync
-
+        
         # Verify removal was successful
         if (-not (Test-Path $KeyPath)) {
             Write-Log "    [$($StatusLevels.Success)] Key removed" -Level SUCCESS
@@ -2920,7 +2931,7 @@ function Remove-RegistryKeyRecursive {
             # Create detailed record of successful removal
             $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status $StatusLevels.Success `
                 -SubkeyCount $keyDetails.SubkeyCount -ValueCount $keyDetails.ValueCount
-
+            $RemediationResults.Registry.Removed += $record
             $RemediationResults.Summary.RegistryValuesRemoved++
             return $StatusLevels.Success
             
@@ -2931,12 +2942,13 @@ function Remove-RegistryKeyRecursive {
             $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status $StatusLevels.Failed `
                 -SubkeyCount $keyDetails.SubkeyCount -ValueCount $keyDetails.ValueCount `
                 -ErrorMessage "Key still exists after removal (possible kernel protection)"
+            $RemediationResults.Registry.Failed += $record
             $RemediationResults.Summary.RegistryValuesFailed++
             return $StatusLevels.Failed
         }
         
     } catch {
-        # Exception during removal attempt
+        # Exception occurred during removal attempt
         $errorMsg = $_.Exception.Message
         Write-Log "    [$($StatusLevels.Error)] Failed to remove: $errorMsg" -Level ERROR
 
@@ -2949,6 +2961,7 @@ function Remove-RegistryKeyRecursive {
         $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status $StatusLevels.Error `
             -SubkeyCount $keyDetails.SubkeyCount -ValueCount $keyDetails.ValueCount `
             -ErrorMessage $errorMsg
+        $RemediationResults.Registry.Errored += $record
         $RemediationResults.Summary.RegistryValuesErrored++
         # Log to critical errors for final report
         $RemediationResults.CriticalErrors += "Registry: $KeyPath - $errorMsg"
@@ -2957,7 +2970,7 @@ function Remove-RegistryKeyRecursive {
 }
 
 # ============================================================================ #
-#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION) - Remove-MalwareRegistryKeys
+#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS) - Remove-MalwareRegistryKeys
 # ============================================================================ #
 
 function Remove-MalwareRegistryKeys {
@@ -2970,7 +2983,20 @@ function Remove-MalwareRegistryKeys {
     - Per-user HKU registry artifacts
     - Supports wildcard patterns for dynamic key discovery
     
-    This runs AFTER file removal to avoid locked registry handles.
+    REMOVAL ORDER:
+    Phase 1: HKLM keys (machine-wide artifacts)
+    Phase 2: HKU keys (per-user artifacts, including wildcards)
+    
+    .PARAMETER HKLMPaths
+    Array of HKLM registry paths to remove (exact paths)
+    
+    .PARAMETER HKUPatterns
+    Array of HKU registry path patterns (supports wildcards)
+    
+    .NOTES
+    This runs AFTER persistence removal to clean up remaining traces.
+    Wildcards in HKUPatterns allow matching multiple keys (e.g., "Software\Classes\OneStart*")
+
 
     #>
     
@@ -3028,6 +3054,7 @@ function Remove-MalwareRegistryKeys {
 
         # Process each HKU pattern for this user
         foreach ($pattern in $HKUPatterns) {
+            # Build the search path
             $basePath = "Registry::HKU\$sid"
             $searchPath = "$basePath\$pattern"
             
@@ -3096,12 +3123,9 @@ function Remove-MalwareRegistryKeys {
     }
     
     # ========================================================================
-    # MODULE COMPLETION
+    # MODULE SUMMARY
     # ========================================================================
     
-    # Calculate module execution time
-    $moduleEndTime = Get-Date
-    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStartTime -EndTime $moduleEndTime
     
     # Display summary
     Write-Log "" -Level INFO
@@ -3113,6 +3137,11 @@ function Remove-MalwareRegistryKeys {
     Write-Log "  Keys Errored: $($RemediationResults.Summary.RegistryValuesErrored)" -Level ERROR
     Write-Log "  Keys Not Found: $($RemediationResults.Registry.NotFound.Count)" -Level INFO
     Write-Log "========================================" -Level INFO
+
+    # End module timing and record duration
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStartTime -EndTime $moduleEndTime
+
 }
 
 # ============================================================================ #
