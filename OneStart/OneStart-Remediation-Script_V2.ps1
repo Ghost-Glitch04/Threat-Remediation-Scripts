@@ -1165,7 +1165,7 @@ function Stop-MalwareProcess {
     )
     
     # Module timing start
-    $moduleStart = Get-Date
+    $moduleStartTime = Get-Date
     
     Write-Log "========================================" -Level INFO
     Write-Log "PROCESS TERMINATION MODULE" -Level INFO
@@ -1238,8 +1238,8 @@ function Stop-MalwareProcess {
     }
     
     # Module timing end
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStartTime -EndTime $moduleEndTime
     
     # Module summary
     Write-Log "========================================" -Level INFO
@@ -1285,6 +1285,7 @@ function Stop-MalwareService {
     Write-Log "SERVICE REMEDIATION MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "Target services: $($ServiceNames.Count)" -Level INFO
+    Write-Log "" -Level INFO
     
     foreach ($serviceName in $ServiceNames) {
         $RemediationResults.Summary.ServicesChecked++
@@ -1311,14 +1312,21 @@ function Stop-MalwareService {
         Write-Log "    Display Name: $($serviceDetails.DisplayName)" -Level INFO
         Write-Log "    Status: $($serviceDetails.Status)" -Level INFO
         Write-Log "    Start Type: $($serviceDetails.StartType)" -Level INFO
-        Write-Log "    Path: $($serviceDetails.PathName)" -Level INFO
+        if ($serviceDetails.PathName) {
+            Write-Log "    Path: $($serviceDetails.PathName)" -Level INFO
+        }
+
         
         # Track results for this service
         $stopResult = "NOT_ATTEMPTED"
         $removalResult = "NOT_ATTEMPTED"
         $overallSuccess = $true
         
-        # Phase 1: Stop service if running
+        # ----------------------------------------------------------------
+        # PHASE 1: Stop the service (if running)
+        # ----------------------------------------------------------------
+        
+
         if ($service.Status -eq 'Running') {
             Write-Log "  [STOPPING] Attempting to stop service..." -Level INFO
             
@@ -2932,7 +2940,7 @@ function Remove-MalwareRegistryKeys {
     )
     
     # Start timing
-    $moduleStart = Get-Date
+    $moduleStartTime = Get-Date
     
     Write-Log "========================================" -Level INFO
     Write-Log "REGISTRY CLEANUP MODULE (ARTIFACTS)" -Level INFO
@@ -3139,8 +3147,8 @@ function Remove-MalwareRegistryKeys {
     # MODULE SUMMARY & TIMING
     # ========================================================================
     
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStartTime -EndTime $moduleEndTime
     
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
@@ -3616,18 +3624,18 @@ Write-Log "" -Level INFO
 # MODULE 1: PROCESS TERMINATION
 # ============================================================================
 Write-Log "[MODULE 1/9] Process Termination" -Level INFO
-$moduleStart = Get-Date
+$moduleStartTime = Get-Date
 
 try {
     Stop-MalwareProcess -ProcessNames $MalwareConfig.Processes
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStartTime -EndTime $moduleEndTime
     Start-Sleep -Seconds 2
 } catch {
-    $moduleEnd = Get-Date
+    $moduleEndTime = Get-Date
     Write-Log "[ERROR] Process module failed: $($_.Exception.Message)" -Level ERROR
     $RemediationResults.CriticalErrors += "Process Module: $($_.Exception.Message)"
-    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStart -EndTime $moduleEnd
+    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 Write-Log "" -Level INFO
@@ -3636,18 +3644,18 @@ Write-Log "" -Level INFO
 # MODULE 2: SERVICE REMEDIATION
 # ============================================================================
 Write-Log "[MODULE 2/9] Service Remediation" -Level INFO
-$moduleStart = Get-Date
+$moduleStartTime = Get-Date
 
 try {
     Stop-MalwareService -ServiceNames $MalwareConfig.Services
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "Services" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Services" -StartTime $moduleStartTime -EndTime $moduleEndTime
     Start-Sleep -Seconds 2
 } catch {
-    $moduleEnd = Get-Date
+    $moduleEndTime = Get-Date
     Write-Log "[ERROR] Service module failed: $($_.Exception.Message)" -Level ERROR
     $RemediationResults.CriticalErrors += "Service Module: $($_.Exception.Message)"
-    Write-ModuleTiming -ModuleName "Services" -StartTime $moduleStart -EndTime $moduleEnd
+    Write-ModuleTiming -ModuleName "Services" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 Write-Log "" -Level INFO
@@ -3656,18 +3664,18 @@ Write-Log "" -Level INFO
 # MODULE 3: CERTIFICATE ANALYSIS & REMEDIATION
 # ============================================================================
 Write-Log "[MODULE 3/9] Certificate Analysis & Remediation" -Level INFO
-$moduleStart = Get-Date
+$moduleStartTime = Get-Date
 
 try {
     Remove-MalwareCertificates -CertConfig $MalwareConfig.Certificates
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStartTime -EndTime $moduleEndTime
     Start-Sleep -Seconds 2
 } catch {
-    $moduleEnd = Get-Date
+    $moduleEndTime = Get-Date
     Write-Log "[ERROR] Certificate module failed: $($_.Exception.Message)" -Level ERROR
     $RemediationResults.CriticalErrors += "Certificate Module: $($_.Exception.Message)"
-    Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStart -EndTime $moduleEnd
+    Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 Write-Log "" -Level INFO
@@ -3676,18 +3684,18 @@ Write-Log "" -Level INFO
 # MODULE 4: SCHEDULED TASK REMEDIATION
 # ============================================================================
 Write-Log "[MODULE 4/9] Scheduled Task Remediation" -Level INFO
-$moduleStart = Get-Date
+$moduleStartTime = Get-Date
 
 try {
     Remove-MalwareTask -TaskPatterns $MalwareConfig.TaskPatterns
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "Tasks" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Tasks" -StartTime $moduleStartTime -EndTime $moduleEndTime
     Start-Sleep -Seconds 2
 } catch {
-    $moduleEnd = Get-Date
+    $moduleEndTime = Get-Date
     Write-Log "[ERROR] Task module failed: $($_.Exception.Message)" -Level ERROR
     $RemediationResults.CriticalErrors += "Task Module: $($_.Exception.Message)"
-    Write-ModuleTiming -ModuleName "Tasks" -StartTime $moduleStart -EndTime $moduleEnd
+    Write-ModuleTiming -ModuleName "Tasks" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 Write-Log "" -Level INFO
@@ -3696,20 +3704,19 @@ Write-Log "" -Level INFO
 # MODULE 5: REGISTRY PERSISTENCE REMOVAL
 # ============================================================================
 Write-Log "[MODULE 5/9] Registry Persistence Removal" -Level INFO
-$moduleStart = Get-Date
-
+$moduleStartTime = Get-Date
 try {
     Remove-MalwareRegistryPersistence -RunKeyPatterns $MalwareConfig.RunKeyPatterns `
         -RegisteredAppPatterns $MalwareConfig.RegisteredAppPatterns `
         -FeatureUsagePatterns $MalwareConfig.FeatureUsagePatterns
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "RegistryPersistence" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "RegistryPersistence" -StartTime $moduleStartTime -EndTime $moduleEndTime
     Start-Sleep -Seconds 2
 } catch {
-    $moduleEnd = Get-Date
+    $moduleEndTime = Get-Date
     Write-Log "[ERROR] Registry Persistence module failed: $($_.Exception.Message)" -Level ERROR
     $RemediationResults.CriticalErrors += "Registry Persistence Module: $($_.Exception.Message)"
-    Write-ModuleTiming -ModuleName "RegistryPersistence" -StartTime $moduleStart -EndTime $moduleEnd
+    Write-ModuleTiming -ModuleName "RegistryPersistence" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 Write-Log "" -Level INFO
@@ -3718,20 +3725,19 @@ Write-Log "" -Level INFO
 # MODULE 6: FILE & FOLDER CLEANUP
 # ============================================================================
 Write-Log "[MODULE 6/9] File & Folder Cleanup" -Level INFO
-$moduleStart = Get-Date
-
+$moduleStartTime = Get-Date
 try {
     Remove-MalwareFiles -UserPaths $MalwareConfig.UserPaths `
         -DownloadPatterns $MalwareConfig.DownloadPatterns `
         -SystemPaths $MalwareConfig.SystemPaths
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "Files" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Files" -StartTime $moduleStartTime -EndTime $moduleEndTime
     Start-Sleep -Seconds 2
 } catch {
-    $moduleEnd = Get-Date
+    $moduleEndTime = Get-Date
     Write-Log "[ERROR] File Cleanup module failed: $($_.Exception.Message)" -Level ERROR
     $RemediationResults.CriticalErrors += "File Cleanup Module: $($_.Exception.Message)"
-    Write-ModuleTiming -ModuleName "Files" -StartTime $moduleStart -EndTime $moduleEnd
+    Write-ModuleTiming -ModuleName "Files" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 Write-Log "" -Level INFO
@@ -3740,19 +3746,19 @@ Write-Log "" -Level INFO
 # MODULE 7: REGISTRY CLEANUP (ARTIFACTS & CONFIGURATION)
 # ============================================================================
 Write-Log "[MODULE 7/9] Registry Cleanup (Artifacts)" -Level INFO
-$moduleStart = Get-Date
+$moduleStartTime = Get-Date
 
 try {
     Remove-MalwareRegistryKeys -HKLMPaths $MalwareConfig.RegistryHKLM `
         -HKUPatterns $MalwareConfig.RegistryHKUPatterns
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStartTime -EndTime $moduleEndTime
     Start-Sleep -Seconds 2
 } catch {
-    $moduleEnd = Get-Date
+    $moduleEndTime = Get-Date
     Write-Log "[ERROR] Registry Cleanup module failed: $($_.Exception.Message)" -Level ERROR
     $RemediationResults.CriticalErrors += "Registry Cleanup Module: $($_.Exception.Message)"
-    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStart -EndTime $moduleEnd
+    Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 Write-Log "" -Level INFO
@@ -3761,19 +3767,19 @@ Write-Log "" -Level INFO
 # MODULE 8: BROWSER ENTRY CLEANUP
 # ============================================================================
 Write-Log "[MODULE 8/9] Browser Entry Cleanup" -Level INFO
-$moduleStart = Get-Date
+$moduleStartTime = Get-Date
 
 try {
     Remove-MalwareBrowserEntries -BrowserPatterns $MalwareConfig.BrowserStartMenuPatterns `
         -FeatureUsagePatterns $MalwareConfig.FeatureUsagePatterns
-    $moduleEnd = Get-Date
-    Write-ModuleTiming -ModuleName "BrowserEntries" -StartTime $moduleStart -EndTime $moduleEnd
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "BrowserEntries" -StartTime $moduleStartTime -EndTime $moduleEndTime
     Start-Sleep -Seconds 2
 } catch {
-    $moduleEnd = Get-Date
+    $moduleEndTime = Get-Date
     Write-Log "[ERROR] Browser Entry module failed: $($_.Exception.Message)" -Level ERROR
     $RemediationResults.CriticalErrors += "Browser Entry Module: $($_.Exception.Message)"
-    Write-ModuleTiming -ModuleName "BrowserEntries" -StartTime $moduleStart -EndTime $moduleEnd
+    Write-ModuleTiming -ModuleName "BrowserEntries" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 Write-Log "" -Level INFO
@@ -3782,24 +3788,24 @@ Write-Log "" -Level INFO
 # MODULE 9: FILE ASSOCIATION CLEANUP
 # ============================================================================
 Write-Log "[MODULE 9/9] File Association Cleanup" -Level INFO
-$moduleStart = Get-Date
+$moduleStartTime = Get-Date
 
 try {
     if ($MalwareConfig.ApplicationAssociationPatterns) {
         Remove-MalwareFileAssociations -AssociationPatterns $MalwareConfig.ApplicationAssociationPatterns
-        $moduleEnd = Get-Date
-        Write-ModuleTiming -ModuleName "FileAssociations" -StartTime $moduleStart -EndTime $moduleEnd
+        $moduleEndTime = Get-Date
+        Write-ModuleTiming -ModuleName "FileAssociations" -StartTime $moduleStartTime -EndTime $moduleEndTime
         Start-Sleep -Seconds 2
     } else {
         Write-Log "  [SKIPPED] No ApplicationAssociationPatterns defined" -Level INFO
-        $moduleEnd = Get-Date
+        $moduleEndTime = Get-Date
         $RemediationResults.ModuleTiming["FileAssociations"] = 0
     }
 } catch {
-    $moduleEnd = Get-Date
+    $moduleEndTime = Get-Date
     Write-Log "[ERROR] File Association module failed: $($_.Exception.Message)" -Level ERROR
     $RemediationResults.CriticalErrors += "File Association Module: $($_.Exception.Message)"
-    Write-ModuleTiming -ModuleName "FileAssociations" -StartTime $moduleStart -EndTime $moduleEnd
+    Write-ModuleTiming -ModuleName "FileAssociations" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 Write-Log "" -Level INFO
