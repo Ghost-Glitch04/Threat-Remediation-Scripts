@@ -1165,7 +1165,7 @@ function Stop-MalwareProcess {
     )
     
     # Module timing start
-    $moduleStartTime = Get-Date
+    $moduleStart = Get-Date
     
     Write-Log "========================================" -Level INFO
     Write-Log "PROCESS TERMINATION MODULE" -Level INFO
@@ -1238,8 +1238,8 @@ function Stop-MalwareProcess {
     }
     
     # Module timing end
-    $moduleEndTime = Get-Date
-    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStartTime -EndTime $moduleEndTime
+    $moduleEnd = Get-Date
+    Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStart -EndTime $moduleEnd
     
     # Module summary
     Write-Log "========================================" -Level INFO
@@ -1741,7 +1741,7 @@ function Remove-MalwareCertificates {
                 -StoreName $cert.StoreName -Subject $cert.Subject `
                 -Thumbprint $cert.Thumbprint -Status "SUSPICIOUS_UNKNOWN" `
                 -Details $cert.Details -FlagReasons $cert.FlagReasons
-            $RemediationResults.Certificates.Flagged += $record
+            $RemediationResults.Certificates.Protected += $record
         }
     }
     
