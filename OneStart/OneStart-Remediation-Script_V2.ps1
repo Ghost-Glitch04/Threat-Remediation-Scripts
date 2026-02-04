@@ -54,7 +54,10 @@ $MalwareConfig = @{
         "PDFEditorService",
         "PDFEditorUpdater",
         "UpdaterSetup",
-        "ManualFinderApp"
+        "ManualFinderApp",
+        "AppSuites",           # NEW
+        "AppSuitesPDF",        # NEW
+        "AppSuitesService"     # NEW
     )
     
     # ----------------------------------------------------------------------------
@@ -75,12 +78,17 @@ $MalwareConfig = @{
     Certificates = @{
         # Known malicious certificate thumbprints (PRIORITY 1 - REMOVE)
         MaliciousThumbprints = @(
-            "612DE7BA0369AFF3507DFF7A39DF2F4F7A82E51D"  # OneStart Technologies LLC
+            "612DE7BA0369AFF3507DFF7A39DF2F4F7A82E51D",  # OneStart Technologies LLC
+            "BCBAA4F693051D69280D19D69DE73832B77B1C25",  # OneStart Technologies LLC
+            "A2278EB6A438DC528F3EBFEB238028C474401BEF"  # Echo Infini Sdn. Bhd.
         )
         
         # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
         MaliciousSerialNumbers = @(
-            "09561E1A16C2BE16570AC67471 2B 56 F1"  # OneStart Technologies LLC
+            "0333EAFBA707AABFD12644AEDC2E8C4E", # OneStart Technologies LLC
+            "03 33 EA FB A7 07 AA BF D1 26 44 AE DC 2E 8C 4E", # OneStart Technologies LLC
+            "58 2C 3A 4B 99 34 B7 EC 10 28 B6 38", # Echo Infini Sdn. Bhd.
+            "582C3A4B9934B7EC1028B638" # Echo Infini Sdn. Bhd.
         )
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
@@ -93,7 +101,8 @@ $MalwareConfig = @{
             "DO_NOT_TRUST",
             "Test",
             "Development",
-            "Debug"
+            "Debug",
+            "Echo Infini"
         )
         
         # Protected keywords - REPORT ONLY, DO NOT DELETE
@@ -148,6 +157,8 @@ $MalwareConfig = @{
         "OneStart*",           # Catches: OneStart, OneStartUpdate, OneStartBar, etc.
         "OneStartChromium*",    # Specific entry (not caught by wildcard due to suffix)
         "OneStartUpdaterTaskUser*", # Has its own wildcard pattern
+        "AppSuites*",
+        "AppSuitesPDF*",
         "PDFEditor*"
     )
     
@@ -160,17 +171,29 @@ $MalwareConfig = @{
     UserPaths = @(
         "C:\Users\{USER}\AppData\Local\OneStart.ai",
         "C:\Users\{USER}\OneStart.ai",
+        "C:\Users\{USER}\AppData\Local\AppSuites",
+        "C:\Users\{USER}\AppData\Roaming\AppSuites",
         "C:\Users\{USER}\Desktop\OneStart.lnk",
+        "C:\Users\{USER}\Desktop\AppSuites*.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\OneStart.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneStart.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PDF Editor.lnk",
+        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\AppSuites*.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\OneStart*.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\PDFEditor*.lnk",
+        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\AppSuites*.lnk",
         "C:\Users\{USER}\AppData\Roaming\NodeJs",
         "C:\Users\{USER}\AppData\Roaming\PDF Editor",
         "C:\Users\{USER}\AppData\Roaming\AP-2E99C4AA-3F56-48BB-A947-2EDA163E765F",
         "C:\Users\{USER}\AppData\Roaming\PDF Editor\*.node",
-        "C:\Users\{USER}\AppData\Local\OneStart.ai\*.node"
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\*.node",
+        # NEW - Communication/Temp Files
+        "C:\Users\{USER}\AppData\Roaming\Microsoft\Templates\~$Normal.dotm",  # Macro template
+        "C:\Users\{USER}\AppData\Local\Temp\nw*_*.tmp",                       # Electron temp files
+        "C:\Users\{USER}\AppData\Local\Temp\OneStart*",                       # OneStart temp files
+        "C:\Users\{USER}\AppData\Local\Temp\AppSuites*",                      # AppSuites temp files
+        "C:\Users\{USER}\AppData\Roaming\PDF Editor\Cache",                   # Communication cache
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\Cache"                     # Communication cache
     )
     
     # ----------------------------------------------------------------------------
@@ -180,13 +203,20 @@ $MalwareConfig = @{
     # Download folder patterns (specific to OneStart)
     DownloadPatterns = @(
         "OneStart*.exe",
-        "*OneStart*.msi"
+        "*OneStart*.msi",
+        "*AppSuites*.msi",
+        "AppSuites-PDF*.msi",
+        "*2005578.msi",
+        "PDFEditor*.msi" 
     )
     
     # System-level paths
     SystemPaths = @(
         "C:\WINDOWS\system32\config\systemprofile\AppData\Local\OneStart.ai",
-        "C:\WINDOWS\system32\config\systemprofile\PDFEditor"
+        "C:\WINDOWS\system32\config\systemprofile\PDFEditor",
+        "C:\WINDOWS\system32\config\systemprofile\AppData\Local\AppSuites",
+        "C:\Program Files\AppSuites",
+        "C:\Program Files (x86)\AppSuites"
     )
     
     # ----------------------------------------------------------------------------
@@ -197,15 +227,21 @@ $MalwareConfig = @{
     RegistryHKLM = @(
         "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OneStart_RASAPI32",
         "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OneStart_RASMANCS",
-        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\onestart.exe"
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\AppSuites_RASAPI32",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\AppSuites_RASMANCS",
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\onestart.exe",
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\appsuites.exe"
     )
     
     # Registry patterns for user hives (HKU) - for cleanup
     RegistryHKUPatterns = @(
         "Software\OneStart*",
         "Software\PDFEditor*",
+        "Software\AppSuites*",
         "Software\Clients\StartMenuInternet\OneStart*",
+        "Software\Clients\StartMenuInternet\AppSuites*",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\*OneStart*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*AppSuites*",
         "Software\Classes\OneStart*",
         "Software\Classes\OSBHTML*",
         # COM Object Registrations (CLSID entries)
@@ -222,7 +258,8 @@ $MalwareConfig = @{
     
     # Browser hijacking entries (specific patterns)
     BrowserStartMenuPatterns = @(
-        "OneStart*"
+        "OneStart*",
+        "AppSuites*"
     )
 
     # ----------------------------------------------------------------------------
@@ -233,6 +270,7 @@ $MalwareConfig = @{
     ApplicationAssociationPatterns = @(
         "OneStart*",
         "OSBHTML*",
+        "AppSuites*",
         "PDFEditor*"
     )
 
@@ -243,6 +281,7 @@ $MalwareConfig = @{
     # Feature usage tracking patterns (AppBadgeUpdated, AppLaunch, etc.)
     FeatureUsagePatterns = @(
         "OneStart*",
+        "AppSuites*",
         "PDFEditor*"
     )
 }
