@@ -2862,7 +2862,6 @@ function Remove-MalwareFiles {
     Write-Log "  Paths Failed: $($RemediationResults.Summary.PathsFailed)" -Level ERROR
     Write-Log "  Paths Errored: $($RemediationResults.Summary.PathsErrored)" -Level ERROR
     Write-Log "  Paths Not Found: $($RemediationResults.Summary.PathsNotFound)" -Level INFO
-    
     Write-Log "========================================" -Level INFO
 }
 
@@ -2878,63 +2877,82 @@ function Remove-RegistryKeyRecursive {
     <#
     .SYNOPSIS
     Removes a registry key and all subkeys with detailed tracking
+    .DESCRIPTION
+    Attempts to recursively delete a registry key. Captures metadata before
+    removal and tracks the outcome (removed, failed, not found, error).
+    Handles kernel-level protection gracefully.
+
     #>
     param(
+        [Parameter(Mandatory=$true)]
         [string]$KeyPath
     )
+
+    # Increment counter for every key we check
+    $RemediationResults.Summary.RegistryKeysChecked++
     
     Write-Log "  Checking: $KeyPath" -Level INFO
     
+    # Capture key details before attempting removal (metadata for tracking)
     $keyDetails = Get-RegistryKeyDetails -KeyPath $KeyPath
-    
+
+    # If key doesn't exist, record NOT_FOUND and return
     if (-not $keyDetails.Exists) {
-        Write-Log "    [NOT FOUND] Key does not exist" -Level INFO
+        Write-Log "    [$($StatusLevels.NotFound)] Key does not exist" -Level INFO
         
-        $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status "NOT_FOUND"
+        $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status $StatusLevels.NotFound
         $RemediationResults.Registry.NotFound += $record
-        return "NOT_FOUND"
+        return $StatusLevels.NotFound
     }
     
+    # Key exists - log what we found
     Write-Log "    [FOUND] Subkeys: $($keyDetails.SubkeyCount) | Values: $($keyDetails.ValueCount)" -Level WARNING
     
     try {
+        # Attempt recursive removal
         Remove-Item -Path $KeyPath -Recurse -Force -ErrorAction Stop
-        Start-Sleep -Milliseconds 200
-        
+        Start-Sleep -Milliseconds 200  # Brief pause to allow filesystem sync
+
+        # Verify removal was successful
         if (-not (Test-Path $KeyPath)) {
-            Write-Log "    [SUCCESS] Key removed" -Level SUCCESS
-            
-            $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status "REMOVED" `
+            Write-Log "    [$($StatusLevels.Success)] Key removed" -Level SUCCESS
+
+            # Create detailed record of successful removal
+            $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status $StatusLevels.Success `
                 -SubkeyCount $keyDetails.SubkeyCount -ValueCount $keyDetails.ValueCount
-            $RemediationResults.Registry.Removed += $record
-            return "SUCCESS"
+
+            $RemediationResults.Summary.RegistryValuesRemoved++
+            return $StatusLevels.Success
             
         } else {
-            Write-Log "    [FAILED] Key still exists (may be kernel protected)" -Level ERROR
+            # Removal command executed but key still exists (likely kernel protection)
+            Write-Log "    [$($StatusLevels.Failed)] Key still exists (may be kernel protected)" -Level ERROR
             
-            $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status "FAILED" `
+            $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status $StatusLevels.Failed `
                 -SubkeyCount $keyDetails.SubkeyCount -ValueCount $keyDetails.ValueCount `
                 -ErrorMessage "Key still exists after removal (possible kernel protection)"
-            $RemediationResults.Registry.Failed += $record
-            return "FAILED"
+            $RemediationResults.Summary.RegistryValuesFailed++
+            return $StatusLevels.Failed
         }
         
     } catch {
+        # Exception during removal attempt
         $errorMsg = $_.Exception.Message
-        Write-Log "    [ERROR] Failed to remove: $errorMsg" -Level ERROR
-        
+        Write-Log "    [$($StatusLevels.Error)] Failed to remove: $errorMsg" -Level ERROR
+
+        # Check for specific error conditions
         if ($errorMsg -like "*Access is denied*" -or $errorMsg -like "*protected*") {
-            Write-Log "    [!] Key may be kernel-level protected" -Level ERROR
-            Write-Log "    [!] Manual removal or specialized tools may be required" -Level ERROR
+            Write-Log "    [!] Registry key appears to be kernel-level protected" -Level ERROR
+            Write-Log "    [!] Manual removal may be required" -Level ERROR
         }
         
-        $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status "ERROR" `
+        $record = New-RegistryKeyRecord -KeyPath $KeyPath -Status $StatusLevels.Error `
             -SubkeyCount $keyDetails.SubkeyCount -ValueCount $keyDetails.ValueCount `
             -ErrorMessage $errorMsg
-        $RemediationResults.Registry.Errored += $record
-        
+        $RemediationResults.Summary.RegistryValuesErrored++
+        # Log to critical errors for final report
         $RemediationResults.CriticalErrors += "Registry: $KeyPath - $errorMsg"
-        return "ERROR"
+        return $StatusLevels.Error
     }
 }
 
@@ -2947,11 +2965,13 @@ function Remove-MalwareRegistryKeys {
     .SYNOPSIS
     Removes malware registry keys (artifacts and configuration)
     .DESCRIPTION
-    Cleans up registry keys left behind by malware, including:
-    - HKLM system-wide configuration
-    - Per-user settings in HKU hives
-    - COM object registrations
-    - Uninstall entries
+    Cleans up registry keys left behind by malware including:
+    - HKLM system-wide configuration keys
+    - Per-user HKU registry artifacts
+    - Supports wildcard patterns for dynamic key discovery
+    
+    This runs AFTER file removal to avoid locked registry handles.
+
     #>
     
     param(
@@ -2962,107 +2982,70 @@ function Remove-MalwareRegistryKeys {
         [array]$HKUPatterns
     )
     
-    # Start timing
+    # ========================================================================
+    # MODULE INITIALIZATION
+    # ========================================================================
+    
+    # Start module timing
+
     $moduleStartTime = Get-Date
     
     Write-Log "========================================" -Level INFO
-    Write-Log "REGISTRY CLEANUP MODULE (ARTIFACTS)" -Level INFO
+    Write-Log "REGISTRY CLEANUP MODULE (ARTIFACTS & CONFIGURATION)" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "Target HKLM paths: $($HKLMPaths.Count)" -Level INFO
     Write-Log "Target HKU patterns: $($HKUPatterns.Count)" -Level INFO
     
     # ========================================================================
-    # PHASE 1: HKLM (Local Machine) Registry Keys
+    # PHASE 1: REMOVE HKLM (System-Wide) REGISTRY KEYS
     # ========================================================================
     
-    Write-Log "" -Level INFO
     Write-Log "Phase 1: Removing HKLM registry keys..." -Level INFO
     
-    $phase1Results = @{
-        Checked = 0
-        Found = 0
-        Removed = 0
-        Failed = 0
-        Errored = 0
-        NotFound = 0
-    }
+    Write-Log "  These are system-wide configuration entries" -Level INFO
+
     
     foreach ($keyPath in $HKLMPaths) {
-        $phase1Results.Checked++
-        $RemediationResults.Summary.RegistryKeysChecked++
-        
-        $result = Remove-RegistryKeyRecursive -KeyPath $keyPath
-        
-        switch ($result) {
-            "SUCCESS" { 
-                $phase1Results.Found++
-                $phase1Results.Removed++
-                $RemediationResults.Summary.RegistryValuesRemoved++
-            }
-            "FAILED" {
-                $phase1Results.Found++
-                $phase1Results.Failed++
-                $RemediationResults.Summary.RegistryValuesFailed++
-            }
-            "ERROR" {
-                $phase1Results.Found++
-                $phase1Results.Errored++
-                $RemediationResults.Summary.RegistryValuesErrored++
-            }
-            "NOT_FOUND" {
-                $phase1Results.NotFound++
-                $RemediationResults.Summary.RegistryValuesNotFound++
-            }
-        }
+        # Remove key and capture result (but don't need to process it further)
+        $null = Remove-RegistryKeyRecursive -KeyPath $keyPath
+
     }
     
-    Write-Log "" -Level INFO
-    Write-Log "Phase 1 Results:" -Level INFO
-    Write-Log "  Checked: $($phase1Results.Checked) | Found: $($phase1Results.Found) | Removed: $($phase1Results.Removed) | Failed: $($phase1Results.Failed)" -Level INFO
-    
     # ========================================================================
-    # PHASE 2: HKU (Per-User) Registry Keys
+    # PHASE 2: REMOVE PER-USER (HKU) REGISTRY KEYS
     # ========================================================================
     
     Write-Log "" -Level INFO
     Write-Log "Phase 2: Removing per-user registry keys..." -Level INFO
+    Write-Log "  These are user-specific configuration entries" -Level INFO
     
+    # Enumerate all user SIDs on the system
     $userSIDs = Get-UserSIDs
     Write-Log "  Found $($userSIDs.Count) user profile(s)" -Level INFO
-    
-    if ($userSIDs.Count -eq 0) {
-        Write-Log "  [WARNING] No user SIDs found - skipping HKU cleanup" -Level WARNING
-    }
-    
-    $phase2Results = @{
-        Checked = 0
-        Found = 0
-        Removed = 0
-        Failed = 0
-        Errored = 0
-        NotFound = 0
-        PatternsWithMatches = 0
-    }
-    
+   
     foreach ($sid in $userSIDs) {
-        Write-Log "" -Level INFO
         Write-Log "  Processing SID: $sid" -Level INFO
-        
+
+        # Process each HKU pattern for this user
         foreach ($pattern in $HKUPatterns) {
             $basePath = "Registry::HKU\$sid"
             $searchPath = "$basePath\$pattern"
             
-            # ----------------------------------------------------------------
-            # Handle wildcard patterns
-            # ----------------------------------------------------------------
+            Write-Log "    Searching: $searchPath" -Level INFO
+            
+            # ------------------------------------------------------------
+            # WILDCARD PATTERN HANDLING
+            # ------------------------------------------------------------
+            # If pattern contains wildcards, we need to search and match
+
             if ($pattern -match '\*') {
                 Write-Log "    Searching pattern: $pattern" -Level INFO
                 
-                # Split pattern to find where wildcard starts
+                # Split pattern into path components
                 $parts = $pattern -split '\\'
                 $currentPath = $basePath
                 
-                # Build path up to first wildcard
+                # Find the first component with a wildcard
                 $searchFromIndex = 0
                 for ($i = 0; $i -lt $parts.Count; $i++) {
                     if ($parts[$i] -match '\*') {
@@ -3075,104 +3058,52 @@ function Remove-MalwareRegistryKeys {
                 if (Test-Path $currentPath) {
                     $searchPattern = $parts[$searchFromIndex]
                     
-                    try {
-                        $matchingKeys = Get-ChildItem $currentPath -ErrorAction SilentlyContinue |
-                            Where-Object { $_.PSChildName -like $searchPattern }
+                    # Find all child keys matching the wildcard pattern
+                    $matchingKeys = Get-ChildItem $currentPath -ErrorAction SilentlyContinue |
+                        Where-Object { $_.PSChildName -like $searchPattern }
+                    
+                    if ($matchingKeys) {
+                        Write-Log "      Found $($matchingKeys.Count) matching key(s)" -Level WARNING
                         
-                        if ($matchingKeys) {
-                            $phase2Results.PatternsWithMatches++
-                            Write-Log "      [FOUND] $($matchingKeys.Count) key(s) match pattern '$searchPattern'" -Level WARNING
-                            
-                            foreach ($key in $matchingKeys) {
-                                $phase2Results.Checked++
-                                $RemediationResults.Summary.RegistryKeysChecked++
-                                
-                                $result = Remove-RegistryKeyRecursive -KeyPath $key.PSPath
-                                
-                                switch ($result) {
-                                    "SUCCESS" { 
-                                        $phase2Results.Found++
-                                        $phase2Results.Removed++
-                                        $RemediationResults.Summary.RegistryValuesRemoved++
-                                    }
-                                    "FAILED" {
-                                        $phase2Results.Found++
-                                        $phase2Results.Failed++
-                                        $RemediationResults.Summary.RegistryValuesFailed++
-                                    }
-                                    "ERROR" {
-                                        $phase2Results.Found++
-                                        $phase2Results.Errored++
-                                        $RemediationResults.Summary.RegistryValuesErrored++
-                                    }
-                                }
-                            }
-                        } else {
-                            Write-Log "      [NOT FOUND] No keys match pattern '$searchPattern'" -Level INFO
-                            $phase2Results.NotFound++
-                            
-                            $record = New-RegistryKeyRecord -KeyPath $searchPath -Status "NOT_FOUND"
-                            $RemediationResults.Registry.NotFound += $record
+                        # Remove each matching key
+                        foreach ($key in $matchingKeys) {
+                            $null = Remove-RegistryKeyRecursive -KeyPath $key.PSPath
                         }
-                    } catch {
-                        Write-Log "      [ERROR] Failed to search pattern: $($_.Exception.Message)" -Level ERROR
-                        $phase2Results.Errored++
-                        $RemediationResults.Summary.RegistryValuesErrored++
+                    } else {
+                        # No keys match the wildcard pattern
+                        Write-Log "      [$($StatusLevels.NotFound)] No keys match pattern" -Level INFO
+                        
+                        $record = New-RegistryKeyRecord -KeyPath $searchPath -Status $StatusLevels.NotFound
+                        $RemediationResults.Registry.NotFound += $record
+                        $RemediationResults.Summary.RegistryKeysChecked++
                     }
                 } else {
-                    Write-Log "      [NOT FOUND] Base path does not exist: $currentPath" -Level INFO
-                    $phase2Results.NotFound++
+                    # Base path doesn't exist (expected if malware not installed for this user)
+                    Write-Log "      [$($StatusLevels.NotFound)] Base path does not exist" -Level INFO
                     
-                    $record = New-RegistryKeyRecord -KeyPath $searchPath -Status "NOT_FOUND"
+                    $record = New-RegistryKeyRecord -KeyPath $searchPath -Status $StatusLevels.NotFound
                     $RemediationResults.Registry.NotFound += $record
+                    $RemediationResults.Summary.RegistryKeysChecked++
                 }
                 
             } else {
-                # ----------------------------------------------------------------
-                # Handle exact path (no wildcards)
-                # ----------------------------------------------------------------
-                $phase2Results.Checked++
-                $RemediationResults.Summary.RegistryKeysChecked++
-                
-                $result = Remove-RegistryKeyRecursive -KeyPath $searchPath
-                
-                switch ($result) {
-                    "SUCCESS" { 
-                        $phase2Results.Found++
-                        $phase2Results.Removed++
-                        $RemediationResults.Summary.RegistryValuesRemoved++
-                    }
-                    "FAILED" {
-                        $phase2Results.Found++
-                        $phase2Results.Failed++
-                        $RemediationResults.Summary.RegistryValuesFailed++
-                    }
-                    "ERROR" {
-                        $phase2Results.Found++
-                        $phase2Results.Errored++
-                        $RemediationResults.Summary.RegistryValuesErrored++
-                    }
-                    "NOT_FOUND" {
-                        $phase2Results.NotFound++
-                        $RemediationResults.Summary.RegistryValuesNotFound++
-                    }
-                }
+                # ------------------------------------------------------------
+                # EXACT PATH HANDLING (No Wildcards)
+                # ------------------------------------------------------------
+                $null = Remove-RegistryKeyRecursive -KeyPath $searchPath
             }
-        } # End foreach pattern
-    } # End foreach SID
-    
-    Write-Log "" -Level INFO
-    Write-Log "Phase 2 Results:" -Level INFO
-    Write-Log "  Patterns with matches: $($phase2Results.PatternsWithMatches)" -Level INFO
-    Write-Log "  Checked: $($phase2Results.Checked) | Found: $($phase2Results.Found) | Removed: $($phase2Results.Removed) | Failed: $($phase2Results.Failed)" -Level INFO
+        }
+    }
     
     # ========================================================================
-    # MODULE SUMMARY & TIMING
+    # MODULE COMPLETION
     # ========================================================================
     
+    # Calculate module execution time
     $moduleEndTime = Get-Date
     Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStartTime -EndTime $moduleEndTime
     
+    # Display summary
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "REGISTRY CLEANUP SUMMARY" -Level INFO
@@ -3180,15 +3111,7 @@ function Remove-MalwareRegistryKeys {
     Write-Log "  Keys Removed: $($RemediationResults.Summary.RegistryValuesRemoved)" -Level SUCCESS
     Write-Log "  Keys Failed: $($RemediationResults.Summary.RegistryValuesFailed)" -Level ERROR
     Write-Log "  Keys Errored: $($RemediationResults.Summary.RegistryValuesErrored)" -Level ERROR
-    Write-Log "  Keys Not Found: $($RemediationResults.Summary.RegistryValuesNotFound)" -Level INFO
-    
-    if ($RemediationResults.Summary.RegistryValuesFailed -gt 0) {
-        Write-Log "" -Level WARNING
-        Write-Log "  [!] Some registry keys could not be removed" -Level WARNING
-        Write-Log "  [!] These may be kernel-level protected" -Level WARNING
-        Write-Log "  [!] Review detailed log for specific keys" -Level WARNING
-    }
-    
+    Write-Log "  Keys Not Found: $($RemediationResults.Registry.NotFound.Count)" -Level INFO
     Write-Log "========================================" -Level INFO
 }
 
