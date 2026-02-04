@@ -4276,8 +4276,8 @@ if ($RemediationResults.CriticalErrors.Count -gt 0) {
     Write-Log "============================================" -Level ERROR
     Write-Log "" -Level ERROR
     
-    foreach ($error in $RemediationResults.CriticalErrors) {
-        Write-Log "  * $error" -Level ERROR
+    foreach ($errorCrit in $RemediationResults.CriticalErrors) {
+        Write-Log "  * $errorCrit" -Level ERROR
     }
     
     Write-Log "" -Level ERROR
