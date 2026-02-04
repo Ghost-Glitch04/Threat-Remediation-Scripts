@@ -1497,8 +1497,10 @@ function Remove-MalwareCertificates {
     3. Suspicious keywords in Subject (analysis + removal)
     
     Includes guardrails for protected vendors (Microsoft, etc.)
-    Reports unexpected certificates matching keywords but not in known lists
-    Tracks detailed metrics including module execution timing
+        
+    .PARAMETER CertConfig
+    Hashtable containing certificate detection rules and store locations
+
     #>
     
     param(
@@ -1506,11 +1508,15 @@ function Remove-MalwareCertificates {
         [hashtable]$CertConfig
     )
     
+    # ========================================================================
+    # MODULE INITIALIZATION
+    # ========================================================================
+    
     # Module timing start
     $moduleStartTime = Get-Date
     
     Write-Log "========================================" -Level INFO
-    Write-Log "CERTIFICATE ANALYSIS & REMEDIATION (ENHANCED)" -Level INFO
+    Write-Log "CERTIFICATE ANALYSIS & REMEDIATION MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "Certificate stores to scan: $($CertConfig.Stores.Count)" -Level INFO
     Write-Log "" -Level INFO
@@ -1524,7 +1530,7 @@ function Remove-MalwareCertificates {
     Write-Log "  * Unexpected certificates matching keywords will be reported" -Level INFO
     Write-Log "" -Level INFO
     
-    # Classification buckets
+    # Classification buckets for different certificate types
     $knownMaliciousThumbprint = @()
     $knownMaliciousSerial = @()
     $suspiciousUnknown = @()
@@ -1541,11 +1547,13 @@ function Remove-MalwareCertificates {
         $storeName = $storeConfig.Store
         $riskLevel = $storeConfig.Risk
         
+        # Track each store checked
         $RemediationResults.Summary.CertStoresChecked++
         
         Write-Log "  Scanning: $location\$storeName (Risk: $riskLevel)" -Level INFO
         
         try {
+            # Open certificate store for reading
             $store = New-Object System.Security.Cryptography.X509Certificates.X509Store(
                 $storeName,
                 $location
@@ -1556,13 +1564,15 @@ function Remove-MalwareCertificates {
             Write-Log "    Found $($certificates.Count) certificate(s)" -Level INFO
             
             foreach ($cert in $certificates) {
+                # Track each certificate scanned
                 $RemediationResults.Summary.CertificatesScanned++
                 
-                # Calculate metrics
+                # Calculate certificate metrics for analysis
                 $certAge = Get-CertificateAge -NotBefore $cert.NotBefore
                 $validityYears = Get-CertificateValidityPeriod -NotBefore $cert.NotBefore -NotAfter $cert.NotAfter
                 $isSelfSigned = ($cert.Subject -eq $cert.Issuer)
                 
+                # Build detailed certificate information object
                 $certDetails = @{
                     Issuer = $cert.Issuer
                     SerialNumber = $cert.SerialNumber
@@ -1574,6 +1584,7 @@ function Remove-MalwareCertificates {
                     RiskLevel = $riskLevel
                 }
                 
+                # Create tracking object for this certificate
                 $certInfo = @{
                     Certificate = $cert
                     Location = $location
@@ -1588,6 +1599,7 @@ function Remove-MalwareCertificates {
                 
                 # ------------------------------------------------------------
                 # PRIORITY 1: Check for known malicious THUMBPRINT
+                # Highest priority - exact match means definite malware
                 # ------------------------------------------------------------
                 if ($CertConfig.MaliciousThumbprints -contains $cert.Thumbprint) {
                     $certInfo.FlagReasons += "Matches known malicious thumbprint"
@@ -1599,11 +1611,12 @@ function Remove-MalwareCertificates {
                     Write-Log "      Thumbprint: $($cert.Thumbprint)" -Level ERROR
                     
                     $RemediationResults.Summary.CertificatesFlagged++
-                    continue
+                    continue  # Skip further checks for this cert
                 }
                 
                 # ------------------------------------------------------------
                 # PRIORITY 2: Check for known malicious SERIAL NUMBER
+                # Second priority - serial number match means known threat
                 # ------------------------------------------------------------
                 if ($CertConfig.MaliciousSerialNumbers -contains $cert.SerialNumber) {
                     $certInfo.FlagReasons += "Matches known malicious serial number"
@@ -1615,11 +1628,12 @@ function Remove-MalwareCertificates {
                     Write-Log "      Serial: $($cert.SerialNumber)" -Level ERROR
                     
                     $RemediationResults.Summary.CertificatesFlagged++
-                    continue
+                    continue  # Skip further checks for this cert
                 }
                 
                 # ------------------------------------------------------------
-                # PRIORITY 3: Check for SUSPICIOUS KEYWORDS
+                # PRIORITY 3: Check for SUSPICIOUS KEYWORDS in Subject
+                # Lowest priority - keyword match needs additional validation
                 # ------------------------------------------------------------
                 $hasSuspiciousKeyword = $false
                 $matchedKeyword = $null
@@ -1635,11 +1649,13 @@ function Remove-MalwareCertificates {
                 if ($hasSuspiciousKeyword) {
                     # ------------------------------------------------------------
                     # GUARDRAIL: Check if certificate is PROTECTED
+                    # Some certs may match keywords but belong to trusted vendors
                     # ------------------------------------------------------------
                     $protectionCheck = Test-ProtectedCertificate -Subject $cert.Subject `
                         -ProtectedKeywords $CertConfig.ProtectedKeywords
                     
                     if ($protectionCheck.IsProtected) {
+                        # Certificate matches suspicious keyword BUT is from protected vendor
                         $certInfo.FlagReasons += "Contains suspicious keyword '$matchedKeyword' but protected by '$($protectionCheck.Keyword)'"
                         $certInfo.ClassificationReason = "PROTECTED"
                         $protectedCertificates += $certInfo
@@ -1650,16 +1666,17 @@ function Remove-MalwareCertificates {
                         Write-Log "      Action: REPORT ONLY - NOT REMOVED" -Level WARNING
                         
                         $RemediationResults.Summary.CertificatesFlagged++
-                        continue
+                        continue  # Don't remove protected certificates
                     }
                     
                     # ------------------------------------------------------------
                     # SUSPICIOUS UNKNOWN: Has keyword but not in known lists
+                    # Requires review - may be new malware variant
                     # ------------------------------------------------------------
                     $certInfo.FlagReasons += "Contains suspicious keyword '$matchedKeyword' (not in known malicious list)"
                     $certInfo.ClassificationReason = "SUSPICIOUS_UNKNOWN"
                     
-                    # Add additional suspicious indicators
+                    # Add additional suspicious indicators for analysis
                     if ($isSelfSigned) {
                         $certInfo.FlagReasons += "Self-signed certificate"
                     }
@@ -1680,18 +1697,19 @@ function Remove-MalwareCertificates {
                     
                     $RemediationResults.Summary.CertificatesFlagged++
                 }
-            }
+            } # End foreach certificate
             
             $store.Close()
             
         } catch {
+            # Error accessing certificate store
             Write-Log "    [ERROR] Failed to scan $location\$storeName - $($_.Exception.Message)" -Level ERROR
             $RemediationResults.CriticalErrors += "Certificate Store: $location\$storeName - $($_.Exception.Message)"
         }
     }
     
     # ========================================================================
-    # PHASE 2: ANALYSIS SUMMARY
+    # PHASE 2: CLASSIFICATION SUMMARY
     # ========================================================================
     
     Write-Log "" -Level INFO
@@ -1712,6 +1730,7 @@ function Remove-MalwareCertificates {
     Write-Log "" -Level INFO
     Write-Log "Phase 3: Detailed Findings" -Level INFO
     
+    # Report protected certificates (for transparency)
     if ($protectedCertificates.Count -gt 0) {
         Write-Log "" -Level INFO
         Write-Log "  [PROTECTED CERTIFICATES - NOT REMOVED]" -Level INFO
@@ -1725,6 +1744,7 @@ function Remove-MalwareCertificates {
             Write-Log "    Reason: $($cert.FlagReasons -join ', ')" -Level INFO
             Write-Log "    Action: REPORTED ONLY" -Level INFO
             
+            # Track protected certificate
             $record = New-CertificateRecord -StoreLocation $cert.Location `
                 -StoreName $cert.StoreName -Subject $cert.Subject `
                 -Thumbprint $cert.Thumbprint -Status $StatusLevels.Protected `
@@ -1733,6 +1753,7 @@ function Remove-MalwareCertificates {
         }
     }
     
+    # Report suspicious unknown certificates (need review)
     if ($suspiciousUnknown.Count -gt 0) {
         Write-Log "" -Level WARNING
         Write-Log "  [SUSPICIOUS UNKNOWN CERTIFICATES]" -Level WARNING
@@ -1750,20 +1771,23 @@ function Remove-MalwareCertificates {
             Write-Log "    Self-Signed: $($cert.Details.IsSelfSigned)" -Level WARNING
             Write-Log "    Reasons: $($cert.FlagReasons -join ', ')" -Level WARNING
             
+            # Track suspicious certificate for reporting
             $record = New-CertificateRecord -StoreLocation $cert.Location `
                 -StoreName $cert.StoreName -Subject $cert.Subject `
                 -Thumbprint $cert.Thumbprint -Status "SUSPICIOUS_UNKNOWN" `
                 -Details $cert.Details -FlagReasons $cert.FlagReasons
-            $RemediationResults.Certificates.Protected += $record
+            $RemediationResults.Certificates.Flagged += $record
         }
     }
     
     # ========================================================================
-    # PHASE 4: REMOVAL OF KNOWN MALICIOUS CERTIFICATES
+    # PHASE 4: REMOVAL OF MALICIOUS CERTIFICATES
     # ========================================================================
     
+    # Combine all certificates to be removed (known malicious + suspicious unknown)
     $allKnownMalicious = $knownMaliciousThumbprint + $knownMaliciousSerial
     
+    # Early exit if no threats found
     if ($allKnownMalicious.Count -eq 0 -and $suspiciousUnknown.Count -eq 0 -and $protectedCertificates.Count -eq 0) {
         Write-Log "" -Level SUCCESS
         Write-Log "  [OK] No malicious or suspicious certificates detected" -Level SUCCESS
@@ -1792,18 +1816,22 @@ function Remove-MalwareCertificates {
         Write-Log "    Location: $($certInfo.Location)\$($certInfo.StoreName)" -Level INFO
         
         try {
+            # Open certificate store for writing
             $store = New-Object System.Security.Cryptography.X509Certificates.X509Store(
                 $certInfo.StoreName,
                 $certInfo.Location
             )
             $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
             
+            # Find certificate by thumbprint
             $certToRemove = $store.Certificates | Where-Object { $_.Thumbprint -eq $certInfo.Thumbprint }
             
             if ($certToRemove) {
+                # Attempt removal
                 $store.Remove($certToRemove)
                 Start-Sleep -Milliseconds 500
                 
+                # Verify removal
                 $checkCert = $store.Certificates | Where-Object { $_.Thumbprint -eq $certInfo.Thumbprint }
                 
                 if (-not $checkCert) {
@@ -1816,6 +1844,7 @@ function Remove-MalwareCertificates {
                     $RemediationResults.Certificates.Removed += $record
                     $RemediationResults.Summary.CertificatesRemoved++
                 } else {
+                    # Removal failed - certificate still present
                     Write-Log "    [FAILED] Certificate still present after removal" -Level ERROR
                     
                     $record = New-CertificateRecord -StoreLocation $certInfo.Location `
@@ -1827,6 +1856,7 @@ function Remove-MalwareCertificates {
                     $RemediationResults.Summary.CertificatesFailed++
                 }
             } else {
+                # Certificate not found (may have been removed already)
                 Write-Log "    [NOT FOUND] Certificate not found (may have been removed already)" -Level WARNING
                 
                 $record = New-CertificateRecord -StoreLocation $certInfo.Location `
@@ -1840,9 +1870,11 @@ function Remove-MalwareCertificates {
             $store.Close()
             
         } catch {
+            # Error during removal
             $errorMsg = $_.Exception.Message
             Write-Log "    [ERROR] Failed to remove certificate: $errorMsg" -Level ERROR
             
+            # Check for common protection mechanisms
             if ($errorMsg -like "*Access is denied*" -or $errorMsg -like "*protected*") {
                 Write-Log "    [!] Certificate may be kernel-level protected" -Level ERROR
                 Write-Log "    [!] Manual removal may be required" -Level ERROR
@@ -1858,13 +1890,12 @@ function Remove-MalwareCertificates {
             
             $RemediationResults.CriticalErrors += "Certificate: $($certInfo.Thumbprint) - $errorMsg"
         }
-    }
+    } # End foreach removal target
     
-    # Module timing end
-    $moduleEndTime = Get-Date
-    Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStartTime -EndTime $moduleEndTime
-    
-    # Module summary
+    # ========================================================================
+    # MODULE SUMMARY
+    # ========================================================================
+
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "CERTIFICATE REMEDIATION SUMMARY" -Level INFO
@@ -1881,6 +1912,10 @@ function Remove-MalwareCertificates {
     Write-Log "  Certificates Errored: $($RemediationResults.Summary.CertificatesErrored)" -Level ERROR
     Write-Log "  Not Found: $($RemediationResults.Summary.CertificatesNotFound)" -Level INFO
     Write-Log "========================================" -Level INFO
+
+    # Record module timing
+    $moduleEndTime = Get-Date
+    Write-ModuleTiming -ModuleName "Certificates" -StartTime $moduleStartTime -EndTime $moduleEndTime
 }
 
 # ============================================================================ #
