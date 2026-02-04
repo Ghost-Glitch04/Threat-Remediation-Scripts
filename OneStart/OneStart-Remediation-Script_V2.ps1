@@ -1285,7 +1285,6 @@ function Stop-MalwareService {
     Write-Log "SERVICE REMEDIATION MODULE" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "Target services: $($ServiceNames.Count)" -Level INFO
-    Write-Log "" -Level INFO
     
     foreach ($serviceName in $ServiceNames) {
         $RemediationResults.Summary.ServicesChecked++
@@ -1312,21 +1311,19 @@ function Stop-MalwareService {
         Write-Log "    Display Name: $($serviceDetails.DisplayName)" -Level INFO
         Write-Log "    Status: $($serviceDetails.Status)" -Level INFO
         Write-Log "    Start Type: $($serviceDetails.StartType)" -Level INFO
-        if ($serviceDetails.PathName) {
-            Write-Log "    Path: $($serviceDetails.PathName)" -Level INFO
-        }
+        Write-Log "    Path: $($serviceDetails.PathName)" -Level INFO
+
 
         
         # Track results for this service
-        $stopResult = "NOT_ATTEMPTED"
-        $removalResult = "NOT_ATTEMPTED"
+        $stopResult = $StatusLevels.Skipped
+        $removalResult = $StatusLevels.Skipped
         $overallSuccess = $true
         
-        # ----------------------------------------------------------------
-        # PHASE 1: Stop the service (if running)
-        # ----------------------------------------------------------------
-        
-
+        # ====================================================================
+        # PHASE 1: Stop Service (if running)
+        # ====================================================================
+    
         if ($service.Status -eq 'Running') {
             Write-Log "  [STOPPING] Attempting to stop service..." -Level INFO
             
@@ -1338,16 +1335,17 @@ function Stop-MalwareService {
                 $serviceCheck = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
                 if ($serviceCheck.Status -eq 'Stopped') {
                     Write-Log "  [SUCCESS] Service stopped" -Level SUCCESS
-                    $stopResult = "SUCCESS"
+                    $stopResult = $StatusLevels.Success
+
                 } else {
                     Write-Log "  [FAILED] Service still running" -Level ERROR
-                    $stopResult = "FAILED"
+                    $stopResult = $StatusLevels.Failed
                     $overallSuccess = $false
                 }
             } catch {
                 $errorMsg = $_.Exception.Message
-                Write-Log "  [ERROR] Failed to stop service: $errorMsg" -Level ERROR
-                $stopResult = "ERROR"
+                Write-Log "  [ERROR] Failed to stop service: $($_.Exception.Message)" -Level ERROR
+                $stopResult = $StatusLevels.NotApplicable
                 $overallSuccess = $false
             }
         } else {
@@ -1355,7 +1353,10 @@ function Stop-MalwareService {
             $stopResult = "NOT_RUNNING"
         }
         
-        # Phase 2: Delete service registration
+        # ====================================================================
+        # PHASE 2: Remove Service
+        # ====================================================================   
+
         Write-Log "  [REMOVING] Attempting to delete service..." -Level INFO
         
         try {
@@ -1367,7 +1368,7 @@ function Stop-MalwareService {
             $serviceCheck = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
             if (-not $serviceCheck) {
                 Write-Log "  [SUCCESS] Service deleted" -Level SUCCESS
-                $removalResult = "SUCCESS"
+                $removalResult = $StatusLevels.Success
             } else {
                 Write-Log "  [FAILED] Service still exists after deletion" -Level ERROR
                 $removalResult = "FAILED"
@@ -1375,13 +1376,17 @@ function Stop-MalwareService {
             }
         } catch {
             $errorMsg = $_.Exception.Message
-            Write-Log "  [ERROR] Failed to delete service: $errorMsg" -Level ERROR
-            $removalResult = "ERROR"
+            Write-Log "  [ERROR] Failed to delete service: $($_.Exception.Message)" -Level ERROR
+            $removalResult = $StatusLevels.Error
             $overallSuccess = $false
         }
         
-        # Phase 3: Record results and update tracking
-        if ($overallSuccess -and $removalResult -eq "SUCCESS") {
+        # ====================================================================
+        # PHASE 3: Record Results
+        # ====================================================================
+        
+        if ($overallSuccess -and $removalResult -eq $StatusLevels.Success) {
+
             # Complete success - service stopped and removed
             Write-Log "  [COMPLETE] Service stopped and removed: $serviceName" -Level SUCCESS
             
@@ -1390,7 +1395,7 @@ function Stop-MalwareService {
             $RemediationResults.Services.Removed += $record
             $RemediationResults.Summary.ServicesRemoved++
             
-        } elseif ($removalResult -eq "FAILED" -or $stopResult -eq "FAILED") {
+        } elseif ($removalResult -eq $StatusLevels.Failed -or $stopResult -eq $StatusLevels.Failed) {
             # Service exists but couldn't be fully removed
             Write-Log "  [FAILED] Service remediation incomplete: $serviceName" -Level ERROR
             
