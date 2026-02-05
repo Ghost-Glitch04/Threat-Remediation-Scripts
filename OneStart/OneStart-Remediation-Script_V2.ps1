@@ -49,6 +49,8 @@ $MalwareConfig = @{
         "OneStartBrowser",
         "OneStartNotification",
         "OneStartTray",
+        "onestart",                # Main application (already implied by existing patterns)
+        "onestart_installer" ,
         "PDFEditor",
         "PDFEditorTray",
         "PDFEditorService",
@@ -73,7 +75,9 @@ $MalwareConfig = @{
         "SmartEasyPDF",
         "onestartpdfdirect",
         "getonestartpdf",
-        "PDFSmartKit"
+        "PDFSmartKit",
+        "*41def9.msi",  # Obfuscated name variant
+        "OneStartPDF-v*.msi"  # Versioned installers
     )
     
     # ----------------------------------------------------------------------------
