@@ -2,14 +2,17 @@
 
 <#
 .SYNOPSIS
-    Detects Notepad++ version and updates if necessary using winget.
+    Detects Notepad++ version and updates if necessary using WinGet PowerShell module.
     
 .DESCRIPTION
     This script checks for Notepad++ installation, verifies the version,
     and updates to the latest version if it's 8.8.7 or older.
-    If WinGet is not installed, it will be installed automatically.
+    Uses the Microsoft.WinGet.Client PowerShell module for reliability.
     Designed for use with SentinelOne Remote Shell.
 #>
+
+# Suppress progress bars for faster downloads
+$ProgressPreference = 'SilentlyContinue'
 
 # Function to get Notepad++ version from registry
 function Get-NotepadPlusPlusVersion {
@@ -57,186 +60,69 @@ function Compare-NotepadVersion {
     return $current.CompareTo($target)
 }
 
-# Function to check if WinGet is available
-function Test-WinGetAvailable {
-    $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
-    if ($wingetCmd) {
+# Function to ensure NuGet PackageProvider is installed
+function Install-NuGetIfRequired {
+    Write-Host "INFO: Checking for NuGet PackageProvider..."
+    
+    if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
+        Write-Host "INFO: Installing NuGet PackageProvider..."
         try {
-            $testOutput = & winget --version 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                return $true
-            }
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction Stop | Out-Null
+            Write-Host "SUCCESS: NuGet PackageProvider installed"
+        } catch {
+            Write-Host "WARNING: Failed to install NuGet PackageProvider: $($_.Exception.Message)"
         }
-        catch {
+    } else {
+        Write-Host "INFO: NuGet PackageProvider already installed"
+    }
+}
+
+# Function to install Microsoft.WinGet.Client module
+function Install-WinGetModule {
+    Write-Host "INFO: Checking for Microsoft.WinGet.Client module..."
+    
+    if (-not (Get-Module -ListAvailable -Name Microsoft.WinGet.Client)) {
+        Write-Host "INFO: Installing Microsoft.WinGet.Client module..."
+        try {
+            # Ensure TLS 1.2
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            
+            # Ensure NuGet is installed first
+            Install-NuGetIfRequired
+            
+            # Install the module
+            Install-Module -Name Microsoft.WinGet.Client -Force -AllowClobber -Repository PSGallery -Scope AllUsers -ErrorAction Stop
+            Write-Host "SUCCESS: Microsoft.WinGet.Client module installed"
+            return $true
+        } catch {
+            Write-Host "ERROR: Failed to install Microsoft.WinGet.Client module: $($_.Exception.Message)"
             return $false
         }
-    }
-    return $false
-}
-
-# Function to create temporary file (PowerShell 5.1 compatible)
-function New-TemporaryFile2 {
-    $tempPath = [System.IO.Path]::GetTempPath()
-    $tempFile = [System.IO.Path]::Combine($tempPath, [System.IO.Path]::GetRandomFileName())
-    $null = New-Item -Path $tempFile -ItemType File -Force
-    return $tempFile
-}
-
-# Function to safely remove files
-function Remove-FileIfExists {
-    param([string]$FilePath)
-    try {
-        if (Test-Path -Path $FilePath) {
-            Remove-Item -Path $FilePath -ErrorAction SilentlyContinue -Force
-        }
-    } catch {}
-}
-
-# Function to get OS architecture
-function Get-OSArchitecture {
-    $arch = $env:PROCESSOR_ARCHITECTURE
-    if ($arch -eq "AMD64") {
-        return "x64"
-    } elseif ($arch -eq "ARM64") {
-        return "arm64"
     } else {
-        return "x86"
-    }
-}
-
-# Function to get WinGet download URL
-function Get-WingetDownloadUrl {
-    param (
-        [Parameter(Mandatory = $true)]
-        [string]$Match
-    )
-    
-    try {
-        $uri = "https://api.github.com/repos/microsoft/winget-cli/releases/latest"
-        $release = Invoke-RestMethod -Uri $uri -ErrorAction Stop
-        
-        $data = $release.assets | Where-Object { $_.name -match $Match } | Select-Object -First 1
-        
-        if ($null -ne $data -and $null -ne $data.browser_download_url) {
-            return [string]$data.browser_download_url
-        } else {
-            throw "Could not find asset matching '$Match'"
-        }
-    } catch {
-        throw "Failed to get WinGet download URL: $($_.Exception.Message)"
-    }
-}
-
-# Function to install WinGet
-function Install-WinGet {
-    Write-Host "INFO: WinGet is not installed. Beginning installation..."
-    Write-Host ""
-    
-    try {
-        $arch = Get-OSArchitecture
-        Write-Host "INFO: Detected architecture: $arch"
-        
-        # ============================================================================
-        # Step 1: Download and install dependencies
-        # ============================================================================
-        Write-Host "INFO: Downloading WinGet dependencies..."
-        
-        $depsZipPath = New-TemporaryFile2
-        $depsUrl = Get-WingetDownloadUrl -Match 'DesktopAppInstaller_Dependencies.zip'
-        
-        Write-Host "INFO: Downloading from $depsUrl"
-        Invoke-WebRequest -Uri $depsUrl -OutFile $depsZipPath -UseBasicParsing
-        
-        # Extract and install dependencies
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $tempExtractPath = Join-Path $env:TEMP "WinGetDeps_$(Get-Date -Format 'yyyyMMddHHmmss')"
-        New-Item -ItemType Directory -Path $tempExtractPath -Force | Out-Null
-        
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($depsZipPath, $tempExtractPath)
-        
-        # Find and install architecture-specific dependencies
-        $depFiles = Get-ChildItem -Path $tempExtractPath -Filter "*${arch}*.appx" -Recurse
-        
-        foreach ($depFile in $depFiles) {
-            Write-Host "INFO: Installing dependency: $($depFile.Name)"
-            try {
-                Add-AppxPackage -Path $depFile.FullName -ErrorAction Stop
-            } catch {
-                Write-Host "WARNING: Failed to install $($depFile.Name) - may already be installed"
-            }
-        }
-        
-        # Cleanup dependencies
-        Remove-FileIfExists $depsZipPath
-        Remove-Item -Path $tempExtractPath -Recurse -Force -ErrorAction SilentlyContinue
-        
-        # ============================================================================
-        # Step 2: Download and install WinGet license
-        # ============================================================================
-        Write-Host "INFO: Downloading WinGet license..."
-        
-        $licensePath = New-TemporaryFile2
-        $licenseUrl = Get-WingetDownloadUrl -Match "License1.xml"
-        
-        Write-Host "INFO: Downloading from $licenseUrl"
-        Invoke-WebRequest -Uri $licenseUrl -OutFile $licensePath -UseBasicParsing
-        
-        # ============================================================================
-        # Step 3: Download and install WinGet
-        # ============================================================================
-        Write-Host "INFO: Downloading WinGet..."
-        
-        $wingetPath = New-TemporaryFile2
-        $wingetUrl = Get-WingetDownloadUrl -Match 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle'
-        
-        Write-Host "INFO: Downloading from $wingetUrl"
-        Invoke-WebRequest -Uri $wingetUrl -OutFile $wingetPath -UseBasicParsing
-        
-        Write-Host "INFO: Installing WinGet..."
-        Add-AppxProvisionedPackage -Online -PackagePath $wingetPath -LicensePath $licensePath -ErrorAction Stop | Out-Null
-        
-        # Cleanup
-        Remove-FileIfExists $wingetPath
-        Remove-FileIfExists $licensePath
-        
-        # Wait for installation to complete
-        Start-Sleep -Seconds 5
-        
-        # Refresh environment PATH
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        
-        Write-Host "SUCCESS: WinGet installation completed"
-        Write-Host ""
+        Write-Host "INFO: Microsoft.WinGet.Client module already installed"
         return $true
+    }
+}
+
+# Function to ensure WinGet is installed using the module
+function Repair-WinGet {
+    Write-Host "INFO: Ensuring WinGet is installed and functional..."
+    
+    try {
+        # Import the module
+        Import-Module Microsoft.WinGet.Client -ErrorAction Stop
         
+        # Repair/Install WinGet
+        Write-Host "INFO: Running Repair-WinGetPackageManager (this may take a minute)..."
+        Repair-WinGetPackageManager -AllUsers -Force -Latest -ErrorAction Stop | Out-Null
+        
+        Write-Host "SUCCESS: WinGet is installed and ready"
+        return $true
     } catch {
-        Write-Host "ERROR: Failed to install WinGet"
-        Write-Host "Error details: $($_.Exception.Message)"
+        Write-Host "ERROR: Failed to repair/install WinGet: $($_.Exception.Message)"
         return $false
     }
-}
-
-# Function to validate WinGet installation
-function Test-WinGetInstallation {
-    Write-Host "INFO: Validating WinGet installation..."
-    
-    # Refresh PATH
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-    
-    # Try multiple times as WinGet might need a moment to register
-    for ($i = 1; $i -le 5; $i++) {
-        if (Test-WinGetAvailable) {
-            $version = & winget --version 2>&1
-            Write-Host "SUCCESS: WinGet is available (Version: $version)"
-            return $true
-        }
-        
-        Write-Host "INFO: Validation attempt $i of 5..."
-        Start-Sleep -Seconds 2
-    }
-    
-    Write-Host "ERROR: WinGet validation failed after 5 attempts"
-    return $false
 }
 
 # Main script execution
@@ -273,76 +159,111 @@ try {
         Write-Host "INFO: Initiating update process..."
         Write-Host ""
         
-        # Check if winget is available
-        Write-Host "INFO: Checking for winget availability..."
-        
-        if (-not (Test-WinGetAvailable)) {
-            Write-Host "WARNING: WinGet is not available on this system."
-            Write-Host ""
-            
-            # Attempt to install WinGet
-            $installSuccess = Install-WinGet
-            
-            if (-not $installSuccess) {
-                Write-Host "ERROR: Failed to install WinGet automatically."
-                Write-Host "INFO: Please install App Installer from Microsoft Store or install WinGet manually."
-                exit 1
-            }
-            
-            # Validate WinGet installation
-            if (-not (Test-WinGetInstallation)) {
-                Write-Host "ERROR: WinGet installation validation failed."
-                exit 1
-            }
-        } else {
-            $wingetVersion = & winget --version 2>&1
-            Write-Host "INFO: WinGet is already installed (Version: $wingetVersion)"
+        # Step 1: Install WinGet module
+        Write-Host "======================================"
+        Write-Host "Step 1: Installing WinGet Module"
+        Write-Host "======================================"
+        if (-not (Install-WinGetModule)) {
+            Write-Host "ERROR: Failed to install Microsoft.WinGet.Client module"
+            exit 1
         }
-        
-        Write-Host "INFO: Proceeding with Notepad++ update..."
         Write-Host ""
         
-        # Update Notepad++ using winget
-        Write-Host "INFO: Executing winget upgrade command..."
-        $updateResult = & winget upgrade Notepad++.Notepad++ --silent --accept-source-agreements --accept-package-agreements 2>&1
+        # Step 2: Ensure WinGet is installed
+        Write-Host "======================================"
+        Write-Host "Step 2: Installing/Repairing WinGet"
+        Write-Host "======================================"
+        if (-not (Repair-WinGet)) {
+            Write-Host "ERROR: Failed to install/repair WinGet"
+            exit 1
+        }
+        Write-Host ""
         
-        # Check if update was successful
-        if ($LASTEXITCODE -eq 0 -or $updateResult -match "Successfully installed") {
-            Write-Host ""
-            Write-Host "SUCCESS: Notepad++ update completed."
+        # Step 3: Update Notepad++
+        Write-Host "======================================"
+        Write-Host "Step 3: Updating Notepad++"
+        Write-Host "======================================"
+        
+        try {
+            Write-Host "INFO: Importing Microsoft.WinGet.Client module..."
+            Import-Module Microsoft.WinGet.Client -ErrorAction Stop
             
-            # Wait a moment for installation to complete
-            Start-Sleep -Seconds 5
+            Write-Host "INFO: Updating Notepad++ using WinGet module..."
+            $updateResult = Update-WinGetPackage -Id Notepad++.Notepad++ -Mode Silent -ErrorAction Stop
             
-            # Validate the update
-            Write-Host "INFO: Validating update..."
-            $newVersion = Get-NotepadPlusPlusVersion
-            
-            if ($newVersion) {
-                Write-Host "INFO: New version detected: $newVersion"
+            if ($updateResult) {
+                Write-Host "SUCCESS: Notepad++ update completed"
                 
-                $postUpdateComparison = Compare-NotepadVersion -CurrentVersion $newVersion -TargetVersion "8.8.8"
+                # Wait for installation to finalize
+                Start-Sleep -Seconds 5
                 
-                if ($postUpdateComparison -ge 0) {
-                    Write-Host ""
-                    Write-Host "SUCCESS: UPDATE SUCCESSFUL - Notepad++ is now SECURED (Version: $newVersion)"
-                    Write-Host ""
-                    exit 0
+                # Validate the update
+                Write-Host "INFO: Validating update..."
+                $newVersion = Get-NotepadPlusPlusVersion
+                
+                if ($newVersion) {
+                    Write-Host "INFO: New version detected: $newVersion"
+                    
+                    $postUpdateComparison = Compare-NotepadVersion -CurrentVersion $newVersion -TargetVersion "8.8.8"
+                    
+                    if ($postUpdateComparison -ge 0) {
+                        Write-Host ""
+                        Write-Host "SUCCESS: UPDATE SUCCESSFUL - Notepad++ is now SECURED (Version: $newVersion)"
+                        Write-Host ""
+                        exit 0
+                    } else {
+                        Write-Host "WARNING: Update completed but version is still below 8.8.8 (Current: $newVersion)"
+                        exit 1
+                    }
                 } else {
-                    Write-Host "WARNING: Update completed but version is still below 8.8.8 (Current: $newVersion)"
+                    Write-Host "ERROR: Unable to verify new version after update"
                     exit 1
                 }
             } else {
-                Write-Host "ERROR: Unable to verify new version after update."
-                exit 1
+                Write-Host "WARNING: Update command completed but returned no result"
+                
+                # Still try to validate
+                Start-Sleep -Seconds 5
+                $newVersion = Get-NotepadPlusPlusVersion
+                
+                if ($newVersion -and (Compare-NotepadVersion -CurrentVersion $newVersion -TargetVersion "8.8.8") -ge 0) {
+                    Write-Host "SUCCESS: Notepad++ is now SECURED (Version: $newVersion)"
+                    exit 0
+                } else {
+                    Write-Host "ERROR: Update may have failed"
+                    exit 1
+                }
             }
-        } else {
+            
+        } catch {
+            Write-Host "ERROR: Failed to update Notepad++ using WinGet module"
+            Write-Host "Error details: $($_.Exception.Message)"
+            
+            # Fallback: Try using winget.exe directly
             Write-Host ""
-            Write-Host "ERROR: Failed to update Notepad++."
-            Write-Host "Error details:"
-            Write-Host $updateResult
+            Write-Host "INFO: Attempting fallback method using winget.exe..."
+            
+            try {
+                $wingetResult = & winget upgrade Notepad++.Notepad++ --silent --accept-source-agreements --accept-package-agreements 2>&1
+                
+                if ($LASTEXITCODE -eq 0 -or $wingetResult -match "Successfully installed") {
+                    Write-Host "SUCCESS: Fallback method succeeded"
+                    
+                    Start-Sleep -Seconds 5
+                    $newVersion = Get-NotepadPlusPlusVersion
+                    
+                    if ($newVersion -and (Compare-NotepadVersion -CurrentVersion $newVersion -TargetVersion "8.8.8") -ge 0) {
+                        Write-Host "SUCCESS: Notepad++ is now SECURED (Version: $newVersion)"
+                        exit 0
+                    }
+                }
+            } catch {
+                Write-Host "ERROR: Fallback method also failed"
+            }
+            
             exit 1
         }
+        
     } else {
         Write-Host ""
         Write-Host "SUCCESS: Notepad++ is SECURED - Version $currentVersion is equal to or newer than 8.8.8"
