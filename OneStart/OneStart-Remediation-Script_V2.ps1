@@ -25,13 +25,13 @@ $MalwareConfig = @{
 
     # Metadata
     Metadata = @{
-        Version = "2.0.0"
-        LastUpdated = "2024-01-15"
+        Version = "2.1.0"  # UPDATED
+        LastUpdated = "2026-02-05"  # UPDATED
         Author = "sentinelrshuser"
         ThreatFamily = "OneStart.AI"
         FirstSeen = "2023-10"
         Severity = "HIGH"
-        Description = "Browser hijacker and PUP that installs unwanted certificates and modifies browser settings"
+        Description = "Browser hijacker and PUP that installs unwanted certificates and modifies browser settings. Distributed via rebranded PDF utilities."
     }
 
     Name = "OneStart.AI"
@@ -55,9 +55,25 @@ $MalwareConfig = @{
         "PDFEditorUpdater",
         "UpdaterSetup",
         "ManualFinderApp",
-        "AppSuites",           # NEW
-        "AppSuitesPDF",        # NEW
-        "AppSuitesService"     # NEW
+        "AppSuites",
+        "AppSuitesPDF",
+        "AppSuitesService",
+        # NEW - PDF Rebranding Variants (from VT report)
+        "pdfzonepro",
+        "viewpdftools",
+        "SmartPDFPro",
+        "easypdfbox",
+        "thepdfonestart",
+        "smartonestartpdf",
+        "smartviewpdf",
+        "pdfguruhub",
+        "allpdfpro",
+        "proonestarthub",
+        "proonestartpdf",
+        "SmartEasyPDF",
+        "onestartpdfdirect",
+        "getonestartpdf",
+        "PDFSmartKit"
     )
     
     # ----------------------------------------------------------------------------
@@ -67,7 +83,8 @@ $MalwareConfig = @{
     # Service names to stop and remove
     Services = @(
         "OneStartService",
-        "PDFEditorService"
+        "PDFEditorService",
+        "AppSuitesService"  # Added for completeness
     )
     
     # ----------------------------------------------------------------------------
@@ -80,15 +97,18 @@ $MalwareConfig = @{
         MaliciousThumbprints = @(
             "612DE7BA0369AFF3507DFF7A39DF2F4F7A82E51D",  # OneStart Technologies LLC
             "BCBAA4F693051D69280D19D69DE73832B77B1C25",  # OneStart Technologies LLC
-            "A2278EB6A438DC528F3EBFEB238028C474401BEF"  # Echo Infini Sdn. Bhd.
+            "A2278EB6A438DC528F3EBFEB238028C474401BEF",  # Echo Infini Sdn. Bhd.
+            "B515DF656EE4C27ED1F9FEBC2CE6F9756E6F023B"   # NEW - Apollo Technologies Inc. (REVOKED)
         )
         
         # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
         MaliciousSerialNumbers = @(
-            "0333EAFBA707AABFD12644AEDC2E8C4E", # OneStart Technologies LLC
-            "03 33 EA FB A7 07 AA BF D1 26 44 AE DC 2E 8C 4E", # OneStart Technologies LLC
-            "58 2C 3A 4B 99 34 B7 EC 10 28 B6 38", # Echo Infini Sdn. Bhd.
-            "582C3A4B9934B7EC1028B638" # Echo Infini Sdn. Bhd.
+            "0333EAFBA707AABFD12644AEDC2E8C4E",                    # OneStart Technologies LLC
+            "03 33 EA FB A7 07 AA BF D1 26 44 AE DC 2E 8C 4E",     # OneStart Technologies LLC (formatted)
+            "582C3A4B9934B7EC1028B638",                            # Echo Infini Sdn. Bhd.
+            "58 2C 3A 4B 99 34 B7 EC 10 28 B6 38",                 # Echo Infini Sdn. Bhd. (formatted)
+            "7209B6BCFD61AFA5A476DBF0",                            # NEW - Apollo Technologies Inc.
+            "72 09 B6 BC FD 61 AF A5 A4 76 DB F0"                  # NEW - Apollo Technologies Inc. (formatted)
         )
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
@@ -102,7 +122,8 @@ $MalwareConfig = @{
             "Test",
             "Development",
             "Debug",
-            "Echo Infini"
+            "Echo Infini",
+            "Apollo Technologies"  # NEW - Certificate holder name
         )
         
         # Protected keywords - REPORT ONLY, DO NOT DELETE
@@ -117,7 +138,8 @@ $MalwareConfig = @{
             "DigiCert",
             "Thawte",
             "GeoTrust",
-            "Comodo"
+            "Comodo",
+            "GlobalSign"  # Added legitimate CA (note: GlobalSign issued the malicious cert but is itself legitimate)
         )
         
         # Certificate stores to scan (ordered by risk level)
@@ -145,7 +167,8 @@ $MalwareConfig = @{
         "OneStartAutoLaunchTask*",
         "PDFEditorScheduledTask",
         "PDFEditorUScheduledTask",
-        "sys_component_health_*"
+        "sys_component_health_*",
+        "AppSuitesTask*"  # Added for AppSuites variant
     )
     
     # ----------------------------------------------------------------------------
@@ -154,17 +177,28 @@ $MalwareConfig = @{
 
     # Registry value patterns to remove from Run keys
     RunKeyPatterns = @(
-        "OneStart*",           # Catches: OneStart, OneStartUpdate, OneStartBar, etc.
-        "OneStartChromium*",    # Specific entry (not caught by wildcard due to suffix)
-        "OneStartUpdaterTaskUser*", # Has its own wildcard pattern
+        "OneStart*",                      # Catches: OneStart, OneStartUpdate, OneStartBar, etc.
+        "OneStartChromium*",              # Specific entry from VT report
+        "OneStartUpdate*",                # Specific entry from VT report
+        "OneStartAutoLaunch*",            # NEW - Catches GUID-based variants like OneStartAutoLaunch_1F8E33510187504C724E98C50417C6C3
+        "OneStartUpdaterTaskUser*",
         "AppSuites*",
         "AppSuitesPDF*",
-        "PDFEditor*"
+        "PDFEditor*",
+        # NEW - PDF Utility Rebrands (may have their own Run keys)
+        "pdfzonepro*",
+        "viewpdftools*",
+        "SmartPDFPro*",
+        "PDFSmartKit*"
     )
     
     # Registered applications patterns
     RegisteredAppPatterns = @(
-        "OneStart*"
+        "OneStart*",
+        "AppSuites*",
+        "PDFZonePro*",      # NEW
+        "SmartPDFPro*",     # NEW
+        "ViewPDFTools*"     # NEW
     )
     
     # User-specific paths (exact matches only)
@@ -173,6 +207,8 @@ $MalwareConfig = @{
         "C:\Users\{USER}\OneStart.ai",
         "C:\Users\{USER}\AppData\Local\AppSuites",
         "C:\Users\{USER}\AppData\Roaming\AppSuites",
+        # NEW - OneStart Installer temp folder (from VT report behavior)
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStart Installer",
         "C:\Users\{USER}\Desktop\OneStart.lnk",
         "C:\Users\{USER}\Desktop\AppSuites*.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\OneStart.lnk",
@@ -187,13 +223,14 @@ $MalwareConfig = @{
         "C:\Users\{USER}\AppData\Roaming\AP-2E99C4AA-3F56-48BB-A947-2EDA163E765F",
         "C:\Users\{USER}\AppData\Roaming\PDF Editor\*.node",
         "C:\Users\{USER}\AppData\Local\OneStart.ai\*.node",
-        # NEW - Communication/Temp Files
-        "C:\Users\{USER}\AppData\Roaming\Microsoft\Templates\~$Normal.dotm",  # Macro template
-        "C:\Users\{USER}\AppData\Local\Temp\nw*_*.tmp",                       # Electron temp files
-        "C:\Users\{USER}\AppData\Local\Temp\OneStart*",                       # OneStart temp files
-        "C:\Users\{USER}\AppData\Local\Temp\AppSuites*",                      # AppSuites temp files
-        "C:\Users\{USER}\AppData\Roaming\PDF Editor\Cache",                   # Communication cache
-        "C:\Users\{USER}\AppData\Local\OneStart.ai\Cache"                     # Communication cache
+        # Communication/Temp Files
+        "C:\Users\{USER}\AppData\Roaming\Microsoft\Templates\~$Normal.dotm",
+        "C:\Users\{USER}\AppData\Local\Temp\nw*_*.tmp",
+        "C:\Users\{USER}\AppData\Local\Temp\OneStart*",
+        "C:\Users\{USER}\AppData\Local\Temp\AppSuites*",
+        "C:\Users\{USER}\AppData\Roaming\PDF Editor\Cache",
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\Cache",
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStart\Application"  # NEW - Main installation path from VT report
     )
     
     # ----------------------------------------------------------------------------
@@ -207,7 +244,29 @@ $MalwareConfig = @{
         "*AppSuites*.msi",
         "AppSuites-PDF*.msi",
         "*2005578.msi",
-        "PDFEditor*.msi" 
+        "PDFEditor*.msi",
+        # NEW - Rebranded PDF installer patterns (from VT report file names)
+        "pdfzonepro*.msi",
+        "viewpdftools*.msi",
+        "SmartPDFPro*.msi",
+        "easypdfbox*.msi",
+        "thepdfonestart*.msi",
+        "smartonestartpdf*.msi",
+        "smartviewpdf*.msi",
+        "pdfguruhub*.msi",
+        "PDFOneStartLive*.msi",
+        "allpdfpro*.msi",
+        "proonestarthub*.msi",
+        "proonestartpdf*.msi",
+        "SmartEasyPDF*.msi",
+        "onestartpdfdirect*.msi",
+        "getonestartpdf*.msi",
+        "PDFSmartKit*.msi",
+        "smartpdfpro*.msi",
+        # Installers that may be downloaded
+        "onestart_installer*.exe",  # NEW - From VT network activity
+        "*41def9.msi",               # NEW - Obfuscated name variant
+        "OneStartPDF-v*.msi"         # NEW - Versioned installers
     )
     
     # System-level paths
@@ -216,7 +275,9 @@ $MalwareConfig = @{
         "C:\WINDOWS\system32\config\systemprofile\PDFEditor",
         "C:\WINDOWS\system32\config\systemprofile\AppData\Local\AppSuites",
         "C:\Program Files\AppSuites",
-        "C:\Program Files (x86)\AppSuites"
+        "C:\Program Files (x86)\AppSuites",
+        "C:\Program Files\OneStart*",       # NEW - Potential installation location
+        "C:\Program Files (x86)\OneStart*"  # NEW - Potential installation location
     )
     
     # ----------------------------------------------------------------------------
@@ -242,8 +303,12 @@ $MalwareConfig = @{
         "Software\Clients\StartMenuInternet\AppSuites*",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\*OneStart*",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\*AppSuites*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*PDFZonePro*",     # NEW
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*SmartPDFPro*",    # NEW
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*ViewPDFTools*",   # NEW
         "Software\Classes\OneStart*",
         "Software\Classes\OSBHTML*",
+        "Software\Classes\AppSuites*",  # NEW
         # COM Object Registrations (CLSID entries)
         "Software\Classes\CLSID\{4DAC24AB-B340-4B7E-AD01-1504A7F59EEA}", 
         "Software\Classes\CLSID\{75828ED1-7BE8-45D0-8950-AA85CBF74510}",
@@ -259,7 +324,10 @@ $MalwareConfig = @{
     # Browser hijacking entries (specific patterns)
     BrowserStartMenuPatterns = @(
         "OneStart*",
-        "AppSuites*"
+        "AppSuites*",
+        "PDFZonePro*",      # NEW
+        "SmartPDFPro*",     # NEW
+        "ViewPDFTools*"     # NEW
     )
 
     # ----------------------------------------------------------------------------
@@ -271,7 +339,10 @@ $MalwareConfig = @{
         "OneStart*",
         "OSBHTML*",
         "AppSuites*",
-        "PDFEditor*"
+        "PDFEditor*",
+        "PDFZonePro*",      # NEW
+        "SmartPDFPro*",     # NEW
+        "ViewPDFTools*"     # NEW
     )
 
     # ----------------------------------------------------------------------------
@@ -282,7 +353,10 @@ $MalwareConfig = @{
     FeatureUsagePatterns = @(
         "OneStart*",
         "AppSuites*",
-        "PDFEditor*"
+        "PDFEditor*",
+        "PDFZonePro*",      # NEW
+        "SmartPDFPro*",     # NEW
+        "ViewPDFTools*"     # NEW
     )
 }
 
