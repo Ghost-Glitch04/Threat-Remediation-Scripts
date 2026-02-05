@@ -74,69 +74,144 @@ function Test-WinGetAvailable {
     return $false
 }
 
+# Function to create temporary file (PowerShell 5.1 compatible)
+function New-TemporaryFile2 {
+    $tempPath = [System.IO.Path]::GetTempPath()
+    $tempFile = [System.IO.Path]::Combine($tempPath, [System.IO.Path]::GetRandomFileName())
+    $null = New-Item -Path $tempFile -ItemType File -Force
+    return $tempFile
+}
+
+# Function to safely remove files
+function Remove-FileIfExists {
+    param([string]$FilePath)
+    try {
+        if (Test-Path -Path $FilePath) {
+            Remove-Item -Path $FilePath -ErrorAction SilentlyContinue -Force
+        }
+    } catch {}
+}
+
+# Function to get OS architecture
+function Get-OSArchitecture {
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    if ($arch -eq "AMD64") {
+        return "x64"
+    } elseif ($arch -eq "ARM64") {
+        return "arm64"
+    } else {
+        return "x86"
+    }
+}
+
+# Function to get WinGet download URL
+function Get-WingetDownloadUrl {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Match
+    )
+    
+    try {
+        $uri = "https://api.github.com/repos/microsoft/winget-cli/releases/latest"
+        $release = Invoke-RestMethod -Uri $uri -ErrorAction Stop
+        
+        $data = $release.assets | Where-Object { $_.name -match $Match } | Select-Object -First 1
+        
+        if ($null -ne $data -and $null -ne $data.browser_download_url) {
+            return [string]$data.browser_download_url
+        } else {
+            throw "Could not find asset matching '$Match'"
+        }
+    } catch {
+        throw "Failed to get WinGet download URL: $($_.Exception.Message)"
+    }
+}
+
 # Function to install WinGet
 function Install-WinGet {
     Write-Host "INFO: WinGet is not installed. Beginning installation..."
     Write-Host ""
     
     try {
-        # Create temporary directory
-        $tempDir = Join-Path $env:TEMP "WinGetInstall_$(Get-Date -Format 'yyyyMMddHHmmss')"
-        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-        Write-Host "INFO: Created temporary directory: $tempDir"
+        $arch = Get-OSArchitecture
+        Write-Host "INFO: Detected architecture: $arch"
         
-        # Define download URLs
-        $wingetUrl = "https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
-        $vcLibsUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
-        $uiXamlUrl = "https://github.com/microsoft/microsoft-ui-xaml/releases/download/v2.8.6/Microsoft.UI.Xaml.2.8.x64.appx"
+        # ============================================================================
+        # Step 1: Download and install dependencies
+        # ============================================================================
+        Write-Host "INFO: Downloading WinGet dependencies..."
         
-        # Download files
-        Write-Host "INFO: Downloading VCLibs dependency..."
-        $vcLibsPath = Join-Path $tempDir "Microsoft.VCLibs.x64.14.00.Desktop.appx"
-        Invoke-WebRequest -Uri $vcLibsUrl -OutFile $vcLibsPath -UseBasicParsing
+        $depsZipPath = New-TemporaryFile2
+        $depsUrl = Get-WingetDownloadUrl -Match 'DesktopAppInstaller_Dependencies.zip'
         
-        Write-Host "INFO: Downloading UI.Xaml dependency..."
-        $uiXamlPath = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.x64.appx"
-        Invoke-WebRequest -Uri $uiXamlUrl -OutFile $uiXamlPath -UseBasicParsing
+        Write-Host "INFO: Downloading from $depsUrl"
+        Invoke-WebRequest -Uri $depsUrl -OutFile $depsZipPath -UseBasicParsing
         
+        # Extract and install dependencies
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $tempExtractPath = Join-Path $env:TEMP "WinGetDeps_$(Get-Date -Format 'yyyyMMddHHmmss')"
+        New-Item -ItemType Directory -Path $tempExtractPath -Force | Out-Null
+        
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($depsZipPath, $tempExtractPath)
+        
+        # Find and install architecture-specific dependencies
+        $depFiles = Get-ChildItem -Path $tempExtractPath -Filter "*${arch}*.appx" -Recurse
+        
+        foreach ($depFile in $depFiles) {
+            Write-Host "INFO: Installing dependency: $($depFile.Name)"
+            try {
+                Add-AppxPackage -Path $depFile.FullName -ErrorAction Stop
+            } catch {
+                Write-Host "WARNING: Failed to install $($depFile.Name) - may already be installed"
+            }
+        }
+        
+        # Cleanup dependencies
+        Remove-FileIfExists $depsZipPath
+        Remove-Item -Path $tempExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+        
+        # ============================================================================
+        # Step 2: Download and install WinGet license
+        # ============================================================================
+        Write-Host "INFO: Downloading WinGet license..."
+        
+        $licensePath = New-TemporaryFile2
+        $licenseUrl = Get-WingetDownloadUrl -Match "License1.xml"
+        
+        Write-Host "INFO: Downloading from $licenseUrl"
+        Invoke-WebRequest -Uri $licenseUrl -OutFile $licensePath -UseBasicParsing
+        
+        # ============================================================================
+        # Step 3: Download and install WinGet
+        # ============================================================================
         Write-Host "INFO: Downloading WinGet..."
-        $wingetPath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
+        
+        $wingetPath = New-TemporaryFile2
+        $wingetUrl = Get-WingetDownloadUrl -Match 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle'
+        
+        Write-Host "INFO: Downloading from $wingetUrl"
         Invoke-WebRequest -Uri $wingetUrl -OutFile $wingetPath -UseBasicParsing
         
-        # Install dependencies and WinGet
-        Write-Host "INFO: Installing VCLibs..."
-        Add-AppxPackage -Path $vcLibsPath -ErrorAction Stop
-        
-        Write-Host "INFO: Installing UI.Xaml..."
-        Add-AppxPackage -Path $uiXamlPath -ErrorAction Stop
-        
         Write-Host "INFO: Installing WinGet..."
-        Add-AppxPackage -Path $wingetPath -ErrorAction Stop
+        Add-AppxProvisionedPackage -Online -PackagePath $wingetPath -LicensePath $licensePath -ErrorAction Stop | Out-Null
         
-        # Clean up
-        Write-Host "INFO: Cleaning up temporary files..."
-        Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        # Cleanup
+        Remove-FileIfExists $wingetPath
+        Remove-FileIfExists $licensePath
         
         # Wait for installation to complete
         Start-Sleep -Seconds 5
         
-        # Refresh environment
+        # Refresh environment PATH
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         
         Write-Host "SUCCESS: WinGet installation completed"
         Write-Host ""
         return $true
         
-    }
-    catch {
+    } catch {
         Write-Host "ERROR: Failed to install WinGet"
         Write-Host "Error details: $($_.Exception.Message)"
-        
-        # Clean up on failure
-        if (Test-Path $tempDir) {
-            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-        
         return $false
     }
 }
