@@ -2,13 +2,13 @@
 
 <#
 .SYNOPSIS
-    Detects Notepad++ version and updates if necessary using WinGet PowerShell module.
+    Detects Notepad++ version and updates if necessary by direct download.
     
 .DESCRIPTION
     This script checks for Notepad++ installation, verifies the version,
     and updates to the latest version if it's 8.8.7 or older.
-    Uses the Microsoft.WinGet.Client PowerShell module for reliability.
-    Designed for use with SentinelOne Remote Shell.
+    Downloads and installs directly from official sources.
+    Designed for use with SentinelOne Remote Shell (SYSTEM context compatible).
 #>
 
 # Suppress progress bars for faster downloads
@@ -60,67 +60,112 @@ function Compare-NotepadVersion {
     return $current.CompareTo($target)
 }
 
-# Function to ensure NuGet PackageProvider is installed
-function Install-NuGetIfRequired {
-    Write-Host "INFO: Checking for NuGet PackageProvider..."
-    
-    if (-not (Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue)) {
-        Write-Host "INFO: Installing NuGet PackageProvider..."
-        try {
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -ErrorAction Stop | Out-Null
-            Write-Host "SUCCESS: NuGet PackageProvider installed"
-        } catch {
-            Write-Host "WARNING: Failed to install NuGet PackageProvider: $($_.Exception.Message)"
-        }
+# Function to get OS architecture
+function Get-OSArchitecture {
+    if ([System.Environment]::Is64BitOperatingSystem) {
+        return "x64"
     } else {
-        Write-Host "INFO: NuGet PackageProvider already installed"
+        return "x86"
     }
 }
 
-# Function to install Microsoft.WinGet.Client module
-function Install-WinGetModule {
-    Write-Host "INFO: Checking for Microsoft.WinGet.Client module..."
-    
-    if (-not (Get-Module -ListAvailable -Name Microsoft.WinGet.Client)) {
-        Write-Host "INFO: Installing Microsoft.WinGet.Client module..."
-        try {
-            # Ensure TLS 1.2
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            
-            # Ensure NuGet is installed first
-            Install-NuGetIfRequired
-            
-            # Install the module
-            Install-Module -Name Microsoft.WinGet.Client -Force -AllowClobber -Repository PSGallery -Scope AllUsers -ErrorAction Stop
-            Write-Host "SUCCESS: Microsoft.WinGet.Client module installed"
-            return $true
-        } catch {
-            Write-Host "ERROR: Failed to install Microsoft.WinGet.Client module: $($_.Exception.Message)"
-            return $false
-        }
-    } else {
-        Write-Host "INFO: Microsoft.WinGet.Client module already installed"
-        return $true
-    }
-}
-
-# Function to ensure WinGet is installed using the module
-function Repair-WinGet {
-    Write-Host "INFO: Ensuring WinGet is installed and functional..."
+# Function to get latest Notepad++ version and download URL
+function Get-NotepadPlusPlusLatestInfo {
+    param([string]$Architecture)
     
     try {
-        # Import the module
-        Import-Module Microsoft.WinGet.Client -ErrorAction Stop
+        Write-Host "INFO: Checking for latest Notepad++ version..."
         
-        # Repair/Install WinGet
-        Write-Host "INFO: Running Repair-WinGetPackageManager (this may take a minute)..."
-        Repair-WinGetPackageManager -AllUsers -Force -Latest -ErrorAction Stop | Out-Null
+        # Use GitHub API to get latest release
+        $apiUrl = "https://api.github.com/repos/notepad-plus-plus/notepad-plus-plus/releases/latest"
+        $release = Invoke-RestMethod -Uri $apiUrl -UseBasicParsing -ErrorAction Stop
         
-        Write-Host "SUCCESS: WinGet is installed and ready"
-        return $true
+        $latestVersion = $release.tag_name -replace '^v', ''
+        Write-Host "INFO: Latest Notepad++ version: $latestVersion"
+        
+        # Find the installer for the correct architecture
+        $installerPattern = if ($Architecture -eq "x64") {
+            "*.Installer.x64.exe$"
+        } else {
+            "*.Installer.exe$"
+        }
+        
+        $asset = $release.assets | Where-Object { 
+            $_.name -match $installerPattern -and $_.name -notlike "*arm64*"
+        } | Select-Object -First 1
+        
+        if ($null -eq $asset) {
+            throw "Could not find installer for architecture: $Architecture"
+        }
+        
+        return @{
+            Version = $latestVersion
+            DownloadUrl = $asset.browser_download_url
+            FileName = $asset.name
+        }
+        
     } catch {
-        Write-Host "ERROR: Failed to repair/install WinGet: $($_.Exception.Message)"
+        Write-Host "ERROR: Failed to get latest Notepad++ info: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+# Function to download file
+function Download-File {
+    param(
+        [string]$Url,
+        [string]$OutputPath
+    )
+    
+    try {
+        Write-Host "INFO: Downloading from $Url"
+        Write-Host "INFO: Saving to $OutputPath"
+        
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $Url -OutFile $OutputPath -UseBasicParsing -ErrorAction Stop
+        
+        if (Test-Path $OutputPath) {
+            Write-Host "SUCCESS: Download completed"
+            return $true
+        } else {
+            Write-Host "ERROR: Downloaded file not found"
+            return $false
+        }
+    } catch {
+        Write-Host "ERROR: Download failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Function to install Notepad++
+function Install-NotepadPlusPlus {
+    param([string]$InstallerPath)
+    
+    try {
+        Write-Host "INFO: Installing Notepad++..."
+        Write-Host "INFO: Running silent installation..."
+        
+        # Run installer with silent parameters
+        $processArgs = @{
+            FilePath = $InstallerPath
+            ArgumentList = "/S"
+            Wait = $true
+            PassThru = $true
+            NoNewWindow = $true
+        }
+        
+        $process = Start-Process @processArgs
+        
+        if ($process.ExitCode -eq 0) {
+            Write-Host "SUCCESS: Installation completed successfully"
+            return $true
+        } else {
+            Write-Host "WARNING: Installation exited with code: $($process.ExitCode)"
+            return $false
+        }
+        
+    } catch {
+        Write-Host "ERROR: Installation failed: $($_.Exception.Message)"
         return $false
     }
 }
@@ -156,111 +201,100 @@ try {
     
     if ($versionComparison -lt 0) {
         Write-Host "WARNING: Notepad++ version $currentVersion is outdated (older than 8.8.8)"
-        Write-Host "INFO: Initiating update process..."
+        Write-Host "INFO: Initiating direct download and update..."
         Write-Host ""
         
-        # Step 1: Install WinGet module
-        Write-Host "======================================"
-        Write-Host "Step 1: Installing WinGet Module"
-        Write-Host "======================================"
-        if (-not (Install-WinGetModule)) {
-            Write-Host "ERROR: Failed to install Microsoft.WinGet.Client module"
+        # Get system architecture
+        $arch = Get-OSArchitecture
+        Write-Host "INFO: System architecture: $arch"
+        
+        # Get latest version info
+        $latestInfo = Get-NotepadPlusPlusLatestInfo -Architecture $arch
+        
+        if ($null -eq $latestInfo) {
+            Write-Host "ERROR: Could not retrieve latest Notepad++ information"
             exit 1
         }
-        Write-Host ""
         
-        # Step 2: Ensure WinGet is installed
-        Write-Host "======================================"
-        Write-Host "Step 2: Installing/Repairing WinGet"
-        Write-Host "======================================"
-        if (-not (Repair-WinGet)) {
-            Write-Host "ERROR: Failed to install/repair WinGet"
+        Write-Host "INFO: Target version: $($latestInfo.Version)"
+        
+        # Check if target version meets requirement
+        $targetComparison = Compare-NotepadVersion -CurrentVersion $latestInfo.Version -TargetVersion "8.8.8"
+        
+        if ($targetComparison -lt 0) {
+            Write-Host "WARNING: Latest available version $($latestInfo.Version) is still below 8.8.8"
+            Write-Host "WARNING: This may indicate version 8.8.8 is not yet released or available"
+        }
+        
+        # Create temporary directory for download
+        $tempDir = Join-Path $env:TEMP "NotepadPlusPlus_Update_$(Get-Date -Format 'yyyyMMddHHmmss')"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        Write-Host "INFO: Created temporary directory: $tempDir"
+        
+        # Download installer
+        $installerPath = Join-Path $tempDir $latestInfo.FileName
+        $downloadSuccess = Download-File -Url $latestInfo.DownloadUrl -OutputPath $installerPath
+        
+        if (-not $downloadSuccess) {
+            Write-Host "ERROR: Failed to download Notepad++ installer"
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
             exit 1
         }
-        Write-Host ""
         
-        # Step 3: Update Notepad++
-        Write-Host "======================================"
-        Write-Host "Step 3: Updating Notepad++"
-        Write-Host "======================================"
+        # Install Notepad++
+        $installSuccess = Install-NotepadPlusPlus -InstallerPath $installerPath
         
-        try {
-            Write-Host "INFO: Importing Microsoft.WinGet.Client module..."
-            Import-Module Microsoft.WinGet.Client -ErrorAction Stop
+        if ($installSuccess) {
+            Write-Host ""
+            Write-Host "INFO: Waiting for installation to finalize..."
+            Start-Sleep -Seconds 5
             
-            Write-Host "INFO: Updating Notepad++ using WinGet module..."
-            $updateResult = Update-WinGetPackage -Id Notepad++.Notepad++ -Mode Silent -ErrorAction Stop
+            # Validate the update
+            Write-Host "INFO: Validating installation..."
+            $newVersion = Get-NotepadPlusPlusVersion
             
-            if ($updateResult) {
-                Write-Host "SUCCESS: Notepad++ update completed"
+            if ($newVersion) {
+                Write-Host "INFO: New version detected: $newVersion"
                 
-                # Wait for installation to finalize
-                Start-Sleep -Seconds 5
+                $postUpdateComparison = Compare-NotepadVersion -CurrentVersion $newVersion -TargetVersion "8.8.8"
                 
-                # Validate the update
-                Write-Host "INFO: Validating update..."
-                $newVersion = Get-NotepadPlusPlusVersion
-                
-                if ($newVersion) {
-                    Write-Host "INFO: New version detected: $newVersion"
+                if ($postUpdateComparison -ge 0) {
+                    Write-Host ""
+                    Write-Host "SUCCESS: UPDATE SUCCESSFUL - Notepad++ is now SECURED (Version: $newVersion)"
+                    Write-Host ""
                     
-                    $postUpdateComparison = Compare-NotepadVersion -CurrentVersion $newVersion -TargetVersion "8.8.8"
+                    # Cleanup
+                    Write-Host "INFO: Cleaning up temporary files..."
+                    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+                    exit 0
+                } elseif ($newVersion -ne $currentVersion) {
+                    Write-Host ""
+                    Write-Host "SUCCESS: Notepad++ was updated to version $newVersion"
+                    Write-Host "WARNING: Version is still below 8.8.8 (Current: $newVersion)"
+                    Write-Host ""
                     
-                    if ($postUpdateComparison -ge 0) {
-                        Write-Host ""
-                        Write-Host "SUCCESS: UPDATE SUCCESSFUL - Notepad++ is now SECURED (Version: $newVersion)"
-                        Write-Host ""
-                        exit 0
-                    } else {
-                        Write-Host "WARNING: Update completed but version is still below 8.8.8 (Current: $newVersion)"
-                        exit 1
-                    }
+                    # Cleanup
+                    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+                    exit 1
                 } else {
-                    Write-Host "ERROR: Unable to verify new version after update"
+                    Write-Host "WARNING: Version unchanged after installation (Current: $newVersion)"
+                    
+                    # Cleanup
+                    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
                     exit 1
                 }
             } else {
-                Write-Host "WARNING: Update command completed but returned no result"
+                Write-Host "ERROR: Unable to verify new version after installation"
                 
-                # Still try to validate
-                Start-Sleep -Seconds 5
-                $newVersion = Get-NotepadPlusPlusVersion
-                
-                if ($newVersion -and (Compare-NotepadVersion -CurrentVersion $newVersion -TargetVersion "8.8.8") -ge 0) {
-                    Write-Host "SUCCESS: Notepad++ is now SECURED (Version: $newVersion)"
-                    exit 0
-                } else {
-                    Write-Host "ERROR: Update may have failed"
-                    exit 1
-                }
+                # Cleanup
+                Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+                exit 1
             }
+        } else {
+            Write-Host "ERROR: Installation failed"
             
-        } catch {
-            Write-Host "ERROR: Failed to update Notepad++ using WinGet module"
-            Write-Host "Error details: $($_.Exception.Message)"
-            
-            # Fallback: Try using winget.exe directly
-            Write-Host ""
-            Write-Host "INFO: Attempting fallback method using winget.exe..."
-            
-            try {
-                $wingetResult = & winget upgrade Notepad++.Notepad++ --silent --accept-source-agreements --accept-package-agreements 2>&1
-                
-                if ($LASTEXITCODE -eq 0 -or $wingetResult -match "Successfully installed") {
-                    Write-Host "SUCCESS: Fallback method succeeded"
-                    
-                    Start-Sleep -Seconds 5
-                    $newVersion = Get-NotepadPlusPlusVersion
-                    
-                    if ($newVersion -and (Compare-NotepadVersion -CurrentVersion $newVersion -TargetVersion "8.8.8") -ge 0) {
-                        Write-Host "SUCCESS: Notepad++ is now SECURED (Version: $newVersion)"
-                        exit 0
-                    }
-                }
-            } catch {
-                Write-Host "ERROR: Fallback method also failed"
-            }
-            
+            # Cleanup
+            Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
             exit 1
         }
         
