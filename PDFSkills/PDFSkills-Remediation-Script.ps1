@@ -2454,7 +2454,6 @@ function Remove-MalwareRegistryPersistence {
         
         # Remove matching values from this key
         $removed = Remove-RegistryValueByPattern -KeyPath $keyPath -ValuePatterns $RunKeyPatterns
-        $phaseResults.HKLMRun += $removed
         $totalRemoved += $removed
 
         if ($removed -eq 0) {
