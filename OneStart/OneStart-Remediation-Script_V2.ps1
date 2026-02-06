@@ -2583,7 +2583,6 @@ function Remove-MalwareRegistryPersistence {
             $RemediationResults.Summary.RegistryKeysChecked++
             # Remove matching values from this user's Run keys
             $removed = Remove-RegistryValueByPattern -KeyPath $keyPath -ValuePatterns $RunKeyPatterns
-            $phaseResults.UserRun += $removed
             $totalRemoved += $removed
                         
             if ($removed -eq 0) {
@@ -2608,7 +2607,7 @@ function Remove-MalwareRegistryPersistence {
     $removed = Remove-RegistryValueByPattern -KeyPath $hklmRegApps -ValuePatterns $RegisteredAppPatterns
     $totalRemoved += $removed
     
-    Write-Log "  Phase 3 Complete: Removed $($phaseResults.HKLMRegApps) HKLM RegisteredApp entries" -Level INFO
+    Write-Log "  Phase 3 Complete: Removed $removed HKLM RegisteredApp entries" -Level INFO
     
     if ($removed -eq 0) {
         Write-Log "    [NOT FOUND] No matching entries" -Level INFO
