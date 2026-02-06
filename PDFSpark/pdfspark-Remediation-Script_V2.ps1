@@ -25,7 +25,7 @@ $MalwareConfig = @{
 
     # Metadata
     Metadata = @{
-        Version = "1.1.0"
+        Version = "1.2.0"
         LastUpdated = "2026-02-06"
         Author = "sentinelrshuser"
         ThreatFamily = "PDFSpark/SparkOnSoft, NibblrAI/OpenSUpdater"
@@ -187,7 +187,9 @@ $MalwareConfig = @{
         "*downloadSpark*",
         "*NibblrAI*",
         "*Nibblr*",
-        "*PDF Spark*"
+        "*PDF Spark*",
+        "*PDF Spark*",
+        "*PDF_Spark*"
     )
     
     # ----------------------------------------------------------------------------
@@ -202,7 +204,8 @@ $MalwareConfig = @{
         "*NibblrAI*",
         "*Nibblr*",
         "*pdfsetup*",
-        "*PDF Spark*"
+        "*PDF Spark*",
+        "*PDF_Spark*"
     )
     
     # Registered applications patterns
@@ -213,12 +216,21 @@ $MalwareConfig = @{
         "*Mainstay Crypto*",
         "*New Mexico Star Networks*",
         "*PDF Spark*",
+        "*PDF_Spark*",
         "*Nibblr*"
     )
     
     # User-specific paths (exact matches only)
     UserPaths = @(
-        # Add specific paths as identified during investigation
+        "Microsoft\Windows\CurrentVersion\Run\PDFSpark*",
+        "Microsoft\Windows\CurrentVersion\Run\SparkOnSoft*",
+        "Microsoft\Windows\CurrentVersion\Run\downloadSpark*",
+        "Microsoft\Windows\CurrentVersion\Run\NibblrAI*",
+        "Microsoft\Windows\CurrentVersion\Run\Nibblr*",
+        "Microsoft\Windows\CurrentVersion\Run\pdfsetup*",
+        "Microsoft\Windows\CurrentVersion\Run\PDF Spark*",
+        "Microsoft\Windows\CurrentVersion\App Paths\PDFSpark*.exe",
+        "Microsoft\Windows\CurrentVersion\App Paths\nibblrAI*.exe"
     )
     
     # ----------------------------------------------------------------------------
@@ -245,28 +257,59 @@ $MalwareConfig = @{
     
     # System-level paths
     SystemPaths = @(
+        # Program Files paths
         "$env:ProgramFiles\PDFSpark*",
         "$env:ProgramFiles\PDF Spark*",
+        "$env:ProgramFiles\PDF_Spark*",  # NEW
         "$env:ProgramFiles\NibblrAI*",
         "$env:ProgramFiles\Nibblr*",
         "$env:ProgramFiles (x86)\PDFSpark*",
         "$env:ProgramFiles (x86)\PDF Spark*",
+        "$env:ProgramFiles (x86)\PDF_Spark*",  # NEW
         "$env:ProgramFiles (x86)\NibblrAI*",
         "$env:ProgramFiles (x86)\Nibblr*",
+        
+        # ProgramData paths
         "$env:ProgramData\PDFSpark*",
         "$env:ProgramData\NibblrAI*",
         "$env:ProgramData\PDF Spark*",
+        "$env:ProgramData\PDF_Spark*",  # NEW
+        
+        # NEW: LocalAppData\Programs\PDF_Spark (PRIMARY INSTALLATION PATH from VT)
+        "$env:LocalAppData\Programs\PDF_Spark",
+        "$env:LocalAppData\Programs\PDFSpark*",
+        "$env:LocalAppData\Programs\PDF Spark*",
+        "$env:LocalAppData\Programs\NibblrAI*",
+        
+        # Other LocalAppData paths
         "$env:LocalAppData\PDFSpark*",
         "$env:LocalAppData\NibblrAI*",
-        "$env:LocalAppData\Programs\PDF Spark",
-        "$env:LocalAppData\Programs\NibblrAI",
+        "$env:LocalAppData\PDF_Spark*",  # NEW
+        
+        # AppData Roaming paths
         "$env:AppData\PDFSpark*",
         "$env:AppData\NibblrAI*",
+        "$env:AppData\PDF_Spark*",  # NEW
         "$env:AppData\pdf-spark-nativefier*",
+        
+        # NEW: Temp folder staging paths (from VT)
+        "$env:LocalAppData\Temp\is-*.tmp",
+        "$env:LocalAppData\Temp\SystemResources\PDFSparkWare_*.tmp.mun",
+        "$env:LocalAppData\Temp\SystemResources\program.tmp.mun",
+        "$env:LocalAppData\Temp\SystemResources\software.tmp.mun",
+        
+        # Start Menu shortcuts
         "$env:AppData\Microsoft\Windows\Start Menu\Programs\PDF Spark.lnk",
+        "$env:AppData\Microsoft\Windows\Start Menu\Programs\PDF_Spark.lnk",  # NEW
         "$env:AppData\Microsoft\Windows\Start Menu\Programs\NibblrAI.lnk",
+        
+        # Desktop shortcuts
         "$env:UserProfile\Desktop\PDF Spark.lnk",
-        "$env:UserProfile\Desktop\NibblrAI.lnk"
+        "$env:UserProfile\Desktop\PDF_Spark.lnk",  # NEW
+        "$env:UserProfile\Desktop\NibblrAI.lnk",
+        "$env:UserProfile\Desktop\executable.exe",  # NEW: Generic names from VT
+        "$env:UserProfile\Desktop\program.exe",
+        "$env:UserProfile\Desktop\software.exe"
     )
     
     # ----------------------------------------------------------------------------
@@ -275,18 +318,42 @@ $MalwareConfig = @{
 
     # Registry key patterns (HKLM) - for cleanup
     RegistryHKLM = @(
+        # Software keys
         "SOFTWARE\PDFSpark*",
         "SOFTWARE\PDF Spark*",
+        "SOFTWARE\PDF_Spark*",  # NEW
         "SOFTWARE\NibblrAI*",
         "SOFTWARE\Nibblr*",
         "SOFTWARE\Mainstay Crypto*",
         "SOFTWARE\New Mexico Star Networks*",
+        
+        # WOW6432Node keys (32-bit on 64-bit)
         "SOFTWARE\WOW6432Node\PDFSpark*",
         "SOFTWARE\WOW6432Node\PDF Spark*",
+        "SOFTWARE\WOW6432Node\PDF_Spark*",  # NEW
         "SOFTWARE\WOW6432Node\NibblrAI*",
         "SOFTWARE\WOW6432Node\Nibblr*",
-        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{*}PDF*Spark*",
-        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{*}NibblrAI*",
+        
+        # Uninstall keys
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*PDF*Spark*",
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*NibblrAI*",
+        "SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*PDF*Spark*",
+        "SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*NibblrAI*",
+        
+        # NEW: Image File Execution Options (Anti-debugging from VT)
+        "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\PDFSparkWare_*.exe",
+        "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\PDFSparkWare_*.tmp",
+        "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\program.exe",
+        "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\program.tmp",
+        "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\software.exe",
+        "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\software.tmp",
+        
+        # NEW: CTF Compatibility (from VT)
+        "SOFTWARE\WOW6432Node\Microsoft\CTF\Compatibility\PDFSparkWare_*.tmp",
+        "SOFTWARE\WOW6432Node\Microsoft\CTF\Compatibility\program.tmp",
+        "SOFTWARE\WOW6432Node\Microsoft\CTF\Compatibility\software.tmp",
+        
+        # LDAP service keys
         "SYSTEM\ControlSet001\Services\LDAP\*SparkOnSoft*",
         "SYSTEM\CurrentControlSet\Services\LDAP\*SparkOnSoft*"
     )
@@ -295,9 +362,16 @@ $MalwareConfig = @{
     RegistryHKUPatterns = @(
         "Software\PDFSpark*",
         "Software\PDF Spark*",
+        "Software\PDF_Spark*",
         "Software\NibblrAI*",
         "Software\Nibblr*",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\PDF Spark_is1",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\NibblrAI*"
+
+        # NEW: Uninstall key (PRIMARY from VT: PDF_Spark_is1)
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\PDF_Spark_is1",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\PDF Spark_is1",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\PDFSpark*",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\NibblrAI*"
     )
     
@@ -309,6 +383,7 @@ $MalwareConfig = @{
     BrowserStartMenuPatterns = @(
         "*PDFSpark*",
         "*PDF Spark*",
+        "*PDF_Spark*",
         "*NibblrAI*",
         "*Nibblr*",
         "*SparkOnSoft*"
