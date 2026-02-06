@@ -14,17 +14,6 @@
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $logFile = Join-Path $env:TEMP "MalwareRemediation_$timestamp.log"
 
-# Verify log file can be created
-try {
-    "Script initialization: $(Get-Date)" | Out-File -FilePath $logFile -ErrorAction Stop
-    Write-Output "[OK] Log file initialized: $logFile"
-} catch {
-    Write-Output "[CRITICAL ERROR] Cannot create log file: $($_.Exception.Message)"
-    Write-Output "[CRITICAL ERROR] Path attempted: $logFile"
-    Write-Output "[CRITICAL ERROR] Script cannot continue without logging capability"
-    exit 1
-}
-
 # ----------------------------------------------------------------------------
 # MALWARE CONFIGURATION
 # ----------------------------------------------------------------------------
@@ -36,16 +25,28 @@ $MalwareConfig = @{
 
     # Metadata
     Metadata = @{
-        Version = "2.1.0"  # UPDATED
-        LastUpdated = "2026-02-05"  # UPDATED
+        Version = "1.1.0"
+        LastUpdated = "2026-02-06"
         Author = "sentinelrshuser"
-        ThreatFamily = "OneStart.AI"
-        FirstSeen = "2023-10"
-        Severity = "HIGH"
-        Description = "Browser hijacker and PUP that installs unwanted certificates and modifies browser settings. Distributed via rebranded PDF utilities."
+        ThreatFamily = "PDFSpark/SparkOnSoft, NibblrAI/OpenSUpdater"
+        FirstSeen = "2025-10-07"
+        Severity = "CRITICAL"
+        Description = "Multi-variant PUP/Adware campaign delivering PDF manipulation tools (PDFSpark) and AI-themed applications (NibblrAI). Employs code-signing certificate abuse, polymorphic naming, and bundled adware/trojans. Associated with Trojan-Downloader.Win32.Adload family."
+        CVSS = "8.5"
+        ThreatIntelSource = "VirusTotal - 26-33/76 detections across 10 samples"
+        Installer = "Inno Setup 6.4.3"
+        Compiler = "Embarcadero Delphi 11.x Alexandria++"
+        KnownVariants = @(
+            "Trojan-Downloader.Win32.Adload",
+            "Win32/SparkOnSoft.C",
+            "PUP.Optional.SparkOnSoft",
+            "Win32/Adware.OpenSUpdater",
+            "Gen:Variant.Ser.Cerbu",
+            "Application.Scriptilla.G"
+        )
     }
 
-    Name = "OneStart.AI"
+    Name = "PDFSpark_NibblrAI_Campaign"
     
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Processes
@@ -53,42 +54,19 @@ $MalwareConfig = @{
 
     # Process names to terminate (without .exe extension)
     Processes = @(
-        "OneStartService",
-        "OneStartAutoLaunch",
-        "OneStartCrashHandler",
-        "OneStartUpdater",
-        "OneStartBrowser",
-        "OneStartNotification",
-        "OneStartTray",
-        "onestart",                # Main application (already implied by existing patterns)
-        "onestart_installer" ,
-        "PDFEditor",
-        "PDFEditorTray",
-        "PDFEditorService",
-        "PDFEditorUpdater",
-        "UpdaterSetup",
-        "ManualFinderApp",
-        "AppSuites",
-        "AppSuitesPDF",
-        "AppSuitesService",
-        # NEW - PDF Rebranding Variants (from VT report)
-        "pdfzonepro",
-        "viewpdftools",
-        "SmartPDFPro",
-        "easypdfbox",
-        "thepdfonestart",
-        "smartonestartpdf",
-        "smartviewpdf",
-        "pdfguruhub",
-        "allpdfpro",
-        "proonestarthub",
-        "proonestartpdf",
-        "SmartEasyPDF",
-        "onestartpdfdirect",
-        "getonestartpdf",
-        "PDFSmartKit",
-        "*41def9.msi",  # Obfuscated name variant
-        "OneStartPDF-v*.msi"  # Versioned installers
+        "PDFSparkOnSoft*",
+        "PDFSparkWare*",
+        "downloadSpark*",
+        "pdfsetup*",
+        "NibblrAI*",
+        "PDF Spark",
+        "Spark*",
+        "9ymnri",
+        "jzb7da6qk",
+        "nlhsd3p8",
+        "7dd9dxmw",
+        "ur8r3d310",
+        "di6ir2"
     )
     
     # ----------------------------------------------------------------------------
@@ -97,9 +75,19 @@ $MalwareConfig = @{
 
     # Service names to stop and remove
     Services = @(
-        "OneStartService",
-        "PDFEditorService",
-        "AppSuitesService"  # Added for completeness
+        "PDFSparkOnSoft*",
+        "PDFSparkWare*",
+        "downloadSpark*",
+        "pdfsetup*",
+        "NibblrAI*",
+        "PDF Spark",
+        "Spark*",
+        "9ymnri",
+        "jzb7da6qk",
+        "nlhsd3p8",
+        "7dd9dxmw",
+        "ur8r3d310",
+        "di6ir2"
     )
     
     # ----------------------------------------------------------------------------
@@ -110,35 +98,50 @@ $MalwareConfig = @{
     Certificates = @{
         # Known malicious certificate thumbprints (PRIORITY 1 - REMOVE)
         MaliciousThumbprints = @(
-            "612DE7BA0369AFF3507DFF7A39DF2F4F7A82E51D",  # OneStart Technologies LLC
-            "BCBAA4F693051D69280D19D69DE73832B77B1C25",  # OneStart Technologies LLC
-            "A2278EB6A438DC528F3EBFEB238028C474401BEF",  # Echo Infini Sdn. Bhd.
-            "B515DF656EE4C27ED1F9FEBC2CE6F9756E6F023B"   # NEW - Apollo Technologies Inc. (REVOKED)
+            # Mainstay Crypto LLC certificates (PDFSpark variants)
+            "E3EFCCB48A282FE2091CBA889D79BF65DEF49607",  # Expired 2025-10-27
+            "C0A01D5A2401E3FBB83118A16DAEC0DBAA5B454A",  # Revoked, expired 2026-01-08
+            "4081C12711D8B7B51A6C21A575F6318094DFBE4D",  # Expired 2025-10-29
+            
+            # New Mexico Star Networks LLC certificates (NibblrAI variants)
+            "BB2D7E5905176BE57C20F47A20B97CB2A4A9CF1E",  # Revoked, expires 2027-05-03
+            "97989020697ED4B1B183BF4E1367EB9C0CB1F56E"   # Revoked, expires 2027-04-21
         )
         
         # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
         MaliciousSerialNumbers = @(
-            "0333EAFBA707AABFD12644AEDC2E8C4E",                    # OneStart Technologies LLC
-            "03 33 EA FB A7 07 AA BF D1 26 44 AE DC 2E 8C 4E",     # OneStart Technologies LLC (formatted)
-            "582C3A4B9934B7EC1028B638",                            # Echo Infini Sdn. Bhd.
-            "58 2C 3A 4B 99 34 B7 EC 10 28 B6 38",                 # Echo Infini Sdn. Bhd. (formatted)
-            "7209B6BCFD61AFA5A476DBF0",                            # NEW - Apollo Technologies Inc.
-            "72 09 B6 BC FD 61 AF A5 A4 76 DB F0"                  # NEW - Apollo Technologies Inc. (formatted)
+            # Mainstay Crypto LLC (all EOC/AOC CA 01 variants)
+            "33 00 05 05 76 72 A0 AA C2 A4 B7 95 66 00 00 00 05 05 76",  # E3EFCC cert
+            "33 00 05 F6 CB CB 2E 27 28 2D DF F9 E2 00 00 00 05 F6 CB",  # 4081C1 cert
+            "92 11 EB 6F AD C4 80 0F 3F B2 A4 92 30 C8 FC 62",            # C0A01D cert (without spacing)
+            
+            # New Mexico Star Networks LLC
+            "30 65 71 4E 37 26 53 50 41 A9 F3 6B",                        # BB2D7E cert
+            "AB B8 0F 61 BF C6 48 DD 18 CE 93 28 09 C9 AE 0D"             # 979890 cert
+        )
+        
+        # Issuing CA thumbprints to monitor (not delete)
+        SuspiciousCAThumbprints = @(
+            # Microsoft ID Verified CS EOC/AOC CA 01 (abused)
+            "01D7DAE83698CDF2F78096DB8B8FD5B39C689B55",  # EOC CA
+            "D7B1118AFBB879D9F2F8E98B9AC12F9367FACE88",  # AOC CA
+            
+            # Sectigo Public Code Signing (legitimate, but used by NibblrAI)
+            "0185FF9961FF0AA2E431817948C28E83D3F3EC70",  # EV R36
+            
+            # GlobalSign GCC (legitimate, but used by NibblrAI)
+            "C10BB76AD4EE815242406A1E3E1117FFEC743D4F"   # R45 EV
         )
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
         SuspiciousKeywords = @(
-            "OneStart",
-            "OneStart.AI",
-            "One Start",
-            "Glint",
-            "Electron",
-            "DO_NOT_TRUST",
-            "Test",
-            "Development",
-            "Debug",
-            "Echo Infini",
-            "Apollo Technologies"  # NEW - Certificate holder name
+            "Mainstay Crypto",
+            "New Mexico Star Networks",
+            "PDF_Spark",
+            "PDFSpark",
+            "NibblrAI",
+            "PDF Spark",
+            "SparkOnSoft"
         )
         
         # Protected keywords - REPORT ONLY, DO NOT DELETE
@@ -154,7 +157,8 @@ $MalwareConfig = @{
             "Thawte",
             "GeoTrust",
             "Comodo",
-            "GlobalSign"  # Added legitimate CA (note: GlobalSign issued the malicious cert but is itself legitimate)
+            "GlobalSign",
+            "Sectigo"
         )
         
         # Certificate stores to scan (ordered by risk level)
@@ -178,12 +182,12 @@ $MalwareConfig = @{
 
     # Scheduled task patterns
     TaskPatterns = @(
-        "OneStartUser",
-        "OneStartAutoLaunchTask*",
-        "PDFEditorScheduledTask",
-        "PDFEditorUScheduledTask",
-        "sys_component_health_*",
-        "AppSuitesTask*"  # Added for AppSuites variant
+        "*PDFSpark*",
+        "*SparkOnSoft*",
+        "*downloadSpark*",
+        "*NibblrAI*",
+        "*Nibblr*",
+        "*PDF Spark*"
     )
     
     # ----------------------------------------------------------------------------
@@ -192,107 +196,77 @@ $MalwareConfig = @{
 
     # Registry value patterns to remove from Run keys
     RunKeyPatterns = @(
-        "OneStart*",                      # Catches: OneStart, OneStartUpdate, OneStartBar, etc.
-        "OneStartChromium*",              # Specific entry from VT report
-        "OneStartUpdate*",                # Specific entry from VT report
-        "OneStartAutoLaunch*",            # NEW - Catches GUID-based variants like OneStartAutoLaunch_1F8E33510187504C724E98C50417C6C3
-        "OneStartUpdaterTaskUser*",
-        "AppSuites*",
-        "AppSuitesPDF*",
-        "PDFEditor*",
-        # NEW - PDF Utility Rebrands (may have their own Run keys)
-        "pdfzonepro*",
-        "viewpdftools*",
-        "SmartPDFPro*",
-        "PDFSmartKit*"
+        "*PDFSpark*",
+        "*SparkOnSoft*",
+        "*downloadSpark*",
+        "*NibblrAI*",
+        "*Nibblr*",
+        "*pdfsetup*",
+        "*PDF Spark*"
     )
     
     # Registered applications patterns
     RegisteredAppPatterns = @(
-        "OneStart*",
-        "AppSuites*",
-        "PDFZonePro*",      # NEW
-        "SmartPDFPro*",     # NEW
-        "ViewPDFTools*"     # NEW
+        "*PDFSpark*",
+        "*SparkOnSoft*",
+        "*NibblrAI*",
+        "*Mainstay Crypto*",
+        "*New Mexico Star Networks*",
+        "*PDF Spark*",
+        "*Nibblr*"
     )
     
     # User-specific paths (exact matches only)
     UserPaths = @(
-        "C:\Users\{USER}\AppData\Local\OneStart.ai",
-        "C:\Users\{USER}\OneStart.ai",
-        "C:\Users\{USER}\AppData\Local\AppSuites",
-        "C:\Users\{USER}\AppData\Roaming\AppSuites",
-        # NEW - OneStart Installer temp folder (from VT report behavior)
-        "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStart Installer",
-        "C:\Users\{USER}\Desktop\OneStart.lnk",
-        "C:\Users\{USER}\Desktop\AppSuites*.lnk",
-        "C:\Users\{USER}\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\OneStart.lnk",
-        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OneStart.lnk",
-        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PDF Editor.lnk",
-        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\AppSuites*.lnk",
-        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\OneStart*.lnk",
-        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\PDFEditor*.lnk",
-        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\AppSuites*.lnk",
-        "C:\Users\{USER}\AppData\Roaming\NodeJs",
-        "C:\Users\{USER}\AppData\Roaming\PDF Editor",
-        "C:\Users\{USER}\AppData\Roaming\AP-2E99C4AA-3F56-48BB-A947-2EDA163E765F",
-        "C:\Users\{USER}\AppData\Roaming\PDF Editor\*.node",
-        "C:\Users\{USER}\AppData\Local\OneStart.ai\*.node",
-        # Communication/Temp Files
-        "C:\Users\{USER}\AppData\Roaming\Microsoft\Templates\~$Normal.dotm",
-        "C:\Users\{USER}\AppData\Local\Temp\nw*_*.tmp",
-        "C:\Users\{USER}\AppData\Local\Temp\OneStart*",
-        "C:\Users\{USER}\AppData\Local\Temp\AppSuites*",
-        "C:\Users\{USER}\AppData\Roaming\PDF Editor\Cache",
-        "C:\Users\{USER}\AppData\Local\OneStart.ai\Cache",
-        "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStart\Application"  # NEW - Main installation path from VT report
+        # Add specific paths as identified during investigation
     )
     
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Files and Folders
     # ----------------------------------------------------------------------------
 
-    # Download folder patterns (specific to OneStart)
+    # Download folder patterns (specific to this campaign)
     DownloadPatterns = @(
-        "OneStart*.exe",
-        "*OneStart*.msi",
-        "*AppSuites*.msi",
-        "AppSuites-PDF*.msi",
-        "*2005578.msi",
-        "PDFEditor*.msi",
-        # NEW - Rebranded PDF installer patterns (from VT report file names)
-        "pdfzonepro*.msi",
-        "viewpdftools*.msi",
-        "SmartPDFPro*.msi",
-        "easypdfbox*.msi",
-        "thepdfonestart*.msi",
-        "smartonestartpdf*.msi",
-        "smartviewpdf*.msi",
-        "pdfguruhub*.msi",
-        "PDFOneStartLive*.msi",
-        "allpdfpro*.msi",
-        "proonestarthub*.msi",
-        "proonestartpdf*.msi",
-        "SmartEasyPDF*.msi",
-        "onestartpdfdirect*.msi",
-        "getonestartpdf*.msi",
-        "PDFSmartKit*.msi",
-        "smartpdfpro*.msi",
-        # Installers that may be downloaded
-        "onestart_installer*.exe",  # NEW - From VT network activity
-        "*41def9.msi",               # NEW - Obfuscated name variant
-        "OneStartPDF-v*.msi"         # NEW - Versioned installers
+        "PDFSparkOnSoft_*.exe",
+        "PDFSparkWare_*.exe",
+        "downloadSpark_*.exe",
+        "pdfsetup*.exe",
+        "NibblrAI_*.exe",
+        "Spark*.exe",
+        "*.exe.VIRUS",
+        "*ymnri.exe",
+        "*zb7da6qk.exe",
+        "*lhsd3p8.exe",
+        "*dd9dxmw.exe",
+        "*r8r3d310.exe",
+        "*i6ir2.exe",
+        "[0-9]*.exe"  # Numeric-only filenames (e.g., 2297867485.exe)
     )
     
     # System-level paths
     SystemPaths = @(
-        "C:\WINDOWS\system32\config\systemprofile\AppData\Local\OneStart.ai",
-        "C:\WINDOWS\system32\config\systemprofile\PDFEditor",
-        "C:\WINDOWS\system32\config\systemprofile\AppData\Local\AppSuites",
-        "C:\Program Files\AppSuites",
-        "C:\Program Files (x86)\AppSuites",
-        "C:\Program Files\OneStart*",       # NEW - Potential installation location
-        "C:\Program Files (x86)\OneStart*"  # NEW - Potential installation location
+        "$env:ProgramFiles\PDFSpark*",
+        "$env:ProgramFiles\PDF Spark*",
+        "$env:ProgramFiles\NibblrAI*",
+        "$env:ProgramFiles\Nibblr*",
+        "$env:ProgramFiles (x86)\PDFSpark*",
+        "$env:ProgramFiles (x86)\PDF Spark*",
+        "$env:ProgramFiles (x86)\NibblrAI*",
+        "$env:ProgramFiles (x86)\Nibblr*",
+        "$env:ProgramData\PDFSpark*",
+        "$env:ProgramData\NibblrAI*",
+        "$env:ProgramData\PDF Spark*",
+        "$env:LocalAppData\PDFSpark*",
+        "$env:LocalAppData\NibblrAI*",
+        "$env:LocalAppData\Programs\PDF Spark",
+        "$env:LocalAppData\Programs\NibblrAI",
+        "$env:AppData\PDFSpark*",
+        "$env:AppData\NibblrAI*",
+        "$env:AppData\pdf-spark-nativefier*",
+        "$env:AppData\Microsoft\Windows\Start Menu\Programs\PDF Spark.lnk",
+        "$env:AppData\Microsoft\Windows\Start Menu\Programs\NibblrAI.lnk",
+        "$env:UserProfile\Desktop\PDF Spark.lnk",
+        "$env:UserProfile\Desktop\NibblrAI.lnk"
     )
     
     # ----------------------------------------------------------------------------
@@ -301,35 +275,30 @@ $MalwareConfig = @{
 
     # Registry key patterns (HKLM) - for cleanup
     RegistryHKLM = @(
-        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OneStart_RASAPI32",
-        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OneStart_RASMANCS",
-        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\AppSuites_RASAPI32",
-        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\AppSuites_RASMANCS",
-        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\onestart.exe",
-        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\appsuites.exe"
+        "SOFTWARE\PDFSpark*",
+        "SOFTWARE\PDF Spark*",
+        "SOFTWARE\NibblrAI*",
+        "SOFTWARE\Nibblr*",
+        "SOFTWARE\Mainstay Crypto*",
+        "SOFTWARE\New Mexico Star Networks*",
+        "SOFTWARE\WOW6432Node\PDFSpark*",
+        "SOFTWARE\WOW6432Node\PDF Spark*",
+        "SOFTWARE\WOW6432Node\NibblrAI*",
+        "SOFTWARE\WOW6432Node\Nibblr*",
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{*}PDF*Spark*",
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{*}NibblrAI*",
+        "SYSTEM\ControlSet001\Services\LDAP\*SparkOnSoft*",
+        "SYSTEM\CurrentControlSet\Services\LDAP\*SparkOnSoft*"
     )
     
     # Registry patterns for user hives (HKU) - for cleanup
     RegistryHKUPatterns = @(
-        "Software\OneStart*",
-        "Software\PDFEditor*",
-        "Software\AppSuites*",
-        "Software\Clients\StartMenuInternet\OneStart*",
-        "Software\Clients\StartMenuInternet\AppSuites*",
-        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*OneStart*",
-        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*AppSuites*",
-        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*PDFZonePro*",     # NEW
-        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*SmartPDFPro*",    # NEW
-        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*ViewPDFTools*",   # NEW
-        "Software\Classes\OneStart*",
-        "Software\Classes\OSBHTML*",
-        "Software\Classes\AppSuites*",  # NEW
-        # COM Object Registrations (CLSID entries)
-        "Software\Classes\CLSID\{4DAC24AB-B340-4B7E-AD01-1504A7F59EEA}", 
-        "Software\Classes\CLSID\{75828ED1-7BE8-45D0-8950-AA85CBF74510}",
-        "Software\Classes\CLSID\{A2C6CB58-C076-425C-ACB7-6D19D64428CD}",
-        "Software\Classes\CLSID\{A45DDD96-C17C-50A3-BD69-8D064F864B24}",
-        "Software\Classes\CLSID\{B5B6376D-5E59-5CB2-A34D-617C21A3A240}"
+        "Software\PDFSpark*",
+        "Software\PDF Spark*",
+        "Software\NibblrAI*",
+        "Software\Nibblr*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\PDF Spark_is1",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\NibblrAI*"
     )
     
     # ----------------------------------------------------------------------------
@@ -338,11 +307,11 @@ $MalwareConfig = @{
     
     # Browser hijacking entries (specific patterns)
     BrowserStartMenuPatterns = @(
-        "OneStart*",
-        "AppSuites*",
-        "PDFZonePro*",      # NEW
-        "SmartPDFPro*",     # NEW
-        "ViewPDFTools*"     # NEW
+        "*PDFSpark*",
+        "*PDF Spark*",
+        "*NibblrAI*",
+        "*Nibblr*",
+        "*SparkOnSoft*"
     )
 
     # ----------------------------------------------------------------------------
@@ -351,28 +320,29 @@ $MalwareConfig = @{
 
     # File association tracking patterns (ApplicationAssociationToasts)
     ApplicationAssociationPatterns = @(
-        "OneStart*",
-        "OSBHTML*",
-        "AppSuites*",
-        "PDFEditor*",
-        "PDFZonePro*",      # NEW
-        "SmartPDFPro*",     # NEW
-        "ViewPDFTools*"     # NEW
+        "*PDFSparkOnSoft*.exe*",
+        "*PDFSparkWare*.exe*",
+        "*downloadSpark*.exe*",
+        "*NibblrAI*.exe*",
+        "*pdfsetup*.exe*",
+        "*ymnri.exe*",
+        "*zb7da6qk.exe*"
     )
 
     # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - File Association Tracking
+    # MALWARE CONFIGURATION - Feature Usage Tracking
     # ----------------------------------------------------------------------------
 
     # Feature usage tracking patterns (AppBadgeUpdated, AppLaunch, etc.)
     FeatureUsagePatterns = @(
-        "OneStart*",
-        "AppSuites*",
-        "PDFEditor*",
-        "PDFZonePro*",      # NEW
-        "SmartPDFPro*",     # NEW
-        "ViewPDFTools*"     # NEW
+        "*PDFSpark*",
+        "*downloadSpark*",
+        "*NibblrAI*",
+        "*Nibblr*",
+        "*PDF Spark*",
+        "*SparkOnSoft*"
     )
+    
 }
 
 # ----------------------------------------------------------------------------
