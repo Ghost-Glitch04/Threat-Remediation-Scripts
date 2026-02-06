@@ -12,9 +12,6 @@
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $logFile = Join-Path $env:TEMP "MalwareRemediation_$timestamp.log"
 
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$logFile = Join-Path $env:TEMP "MalwareRemediation_$timestamp.log"
-
 # Verify log file can be created
 try {
     "Script initialization: $(Get-Date)" | Out-File -FilePath $logFile -ErrorAction Stop
@@ -40,7 +37,7 @@ $MalwareConfig = @{
         Version = "1.0.0"
         LastUpdated = "2026-02-05"
         Author = "sentinelrshuser"
-        ThreatFamily = "MediaArena/MStealer"
+        ThreatFamily = "PDFSkills"
         FirstSeen = "2024-10"
         Severity = "CRITICAL"
         Description = "Trojan-Spy/Adware variant MediaArena (MSIL/.NET). " +
@@ -58,7 +55,7 @@ $MalwareConfig = @{
         )
     }
 
-    Name = "MediaArena/PDFSkills"
+    Name = "PDFSkills"
     
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Processes
