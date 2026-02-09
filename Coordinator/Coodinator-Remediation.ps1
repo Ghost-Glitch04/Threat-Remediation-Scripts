@@ -57,8 +57,7 @@ $MalwareConfig = @{
     Processes = @(
         "coordinator",
         "coordinator.exe",
-        "swapper64-2258",
-        "updater"  # Fake Google updater processes
+        "swapper64-2258"
     )
     
     # ----------------------------------------------------------------------------
@@ -68,8 +67,7 @@ $MalwareConfig = @{
     # Service names to stop and remove
     Services = @(
         "GoogleUpdaterInternalService126.0.6462.0",
-        "GoogleUpdaterInternalService127.0.6490.0",
-        "GoogleUpdaterInternalService*"  # Pattern to catch all variants
+        "GoogleUpdaterInternalService127.0.6490.0"
     )
     
     # ----------------------------------------------------------------------------
@@ -86,7 +84,7 @@ $MalwareConfig = @{
         # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
         MaliciousSerialNumbers = @(
             "03 AE 9C 75 70 7D 47 28 71 00 A7 E9 D1 C3 C8 3C",
-            "03AE9C75707D4728710​0A7E9D1C3C83C"  # Without spaces
+            "03AE9C75707D47287100A7E9D1C3C83C"  # Without spaces
         )
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
@@ -131,9 +129,6 @@ $MalwareConfig = @{
 
     # Scheduled task patterns
     TaskPatterns = @(
-        "*GoogleSystem*",
-        "*GoogleUpdater*",
-        "*GoogleUpdaterTaskSystem*",
         "GoogleUpdaterTaskSystem126.0.6462.0*",
         "GoogleUpdaterTaskSystem127.0.6490.0*"
     )
@@ -147,14 +142,12 @@ $MalwareConfig = @{
         "*coordinator*",
         "*swapper64*",
         "*2258*",
-        "*GoogleUpdater*"
     )
     
     # Registered applications patterns
     RegisteredAppPatterns = @(
         "*coordinator.exe*",
         "*swapper64-2258*",
-        "*GoogleUpdater\\*\\updater.exe*"
     )
     
     # User-specific paths (exact matches only)
@@ -172,7 +165,6 @@ $MalwareConfig = @{
 
     # Download folder patterns
     DownloadPatterns = @(
-        "*\Downloads\2258*",
         "*\Downloads\coordinator*",
         "*\Downloads\swapper64-2258*",
         "*\Desktop\swapper64-2258*",
@@ -202,16 +194,12 @@ $MalwareConfig = @{
 
     # Registry key patterns (HKLM) - for cleanup
     RegistryHKLM = @(
-        "HKLM:\System\CurrentControlSet\Services\GoogleUpdaterInternalService*",
-        "HKLM:\SOFTWARE\Google*_*",
-        "HKLM:\SOFTWARE\WOW6432Node\Google*_*"
     )
     
     # Registry patterns for user hives (HKU) - for cleanup
     RegistryHKUPatterns = @(
         "*\Software\coordinator*",
-        "*\Software\swapper64*",
-        "*\Software\Google*_*"
+        "*\Software\swapper64*"
     )
     
     # ----------------------------------------------------------------------------
