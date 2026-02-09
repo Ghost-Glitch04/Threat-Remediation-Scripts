@@ -141,13 +141,13 @@ $MalwareConfig = @{
     RunKeyPatterns = @(
         "*coordinator*",
         "*swapper64*",
-        "*2258*",
+        "*2258*"
     )
     
     # Registered applications patterns
     RegisteredAppPatterns = @(
         "*coordinator.exe*",
-        "*swapper64-2258*",
+        "*swapper64-2258*"
     )
     
     # User-specific paths (exact matches only)
@@ -231,7 +231,7 @@ $MalwareConfig = @{
     FeatureUsagePatterns = @(
         "*coordinator*",
         "*swapper64*",
-        "*2258*"
+        "*swapper64-2258*"
     )
 }
 
