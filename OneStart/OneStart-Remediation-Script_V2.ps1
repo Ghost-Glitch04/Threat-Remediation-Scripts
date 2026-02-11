@@ -232,8 +232,8 @@ $MalwareConfig = @{
             "Thawte",
             "GeoTrust",
             "Comodo",
-            "GlobalSign",  # Legitimate CA (though used to sign malicious cert)
-            "Sectigo"
+            "Sectigo",
+            "GlobalSign"
         )
         
         # Certificate stores to scan (ordered by risk level)

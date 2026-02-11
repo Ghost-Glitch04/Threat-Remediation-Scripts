@@ -66,7 +66,8 @@ $MalwareConfig = @{
         "Lister",
         "Recipe Finder - Recipe Lister",
         "*recipelister*",
-        "*recipe-finder*"
+        "*recipe-finder*",
+        "*Recipe*Finder*Recipe*Lister*"
     )
     
     # ----------------------------------------------------------------------------
@@ -75,10 +76,12 @@ $MalwareConfig = @{
 
     # Service names to stop and remove
     Services = @(
-        # No specific services created by malware, but monitors these:
-        # "wscsvc",      # Windows Security Center - LEGITIMATE (monitor only)
-        # "VaultSvc",    # Credential Manager - LEGITIMATE (monitor only)
-        # "clipsvc"      # Client License Service - LEGITIMATE (monitor only)
+        "RecipeLister",
+        "Lister",
+        "Recipe Finder - Recipe Lister",
+        "*recipelister*",
+        "*recipe-finder*",
+        "*Recipe*Finder*Recipe*Lister*"
     )
     
     # ----------------------------------------------------------------------------
@@ -95,8 +98,6 @@ $MalwareConfig = @{
         # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
         MaliciousSerialNumbers = @(
             "3FCF318137399BBB62084F8D2DD318A3"  # Global Tech Allies ltd
-
-
         )
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
@@ -120,6 +121,7 @@ $MalwareConfig = @{
             "Thawte",
             "GeoTrust",
             "Comodo",
+            "Sectigo",
             "GlobalSign"
         )
         
@@ -186,23 +188,125 @@ $MalwareConfig = @{
         "*Lister.exe",
         "*Recipe*Finder*Recipe*Lister.exe",
         "*recipelister*.exe",
+        "*software.exe",  # Alternative name observed
         "1619bcad3785be31ac2fdee0ab91392d08d9392032246e42673c3cb8964d4cb7*",
-        "53076d20b5f36fd8b69a0507d5cb08c0965db4a2*"
+        "53076d20b5f36fd8b69a0507d5cb08c0965db4a2*",
+        "8c21cefcd6b32face145ed801f256589*"
     )
     
     # System-level paths
     SystemPaths = @(
-        "$env:LOCALAPPDATA\Temp\ns*\tmp",
+        # Primary installation directory (random GUID pattern)
         "$env:LOCALAPPDATA\Temp\2w1rXpxZnwDUwuTeNvdD6FUkeI0",
+        "$env:LOCALAPPDATA\Temp\2w1rXpxZnwDUwuTeNvdD6FUkeI0\*",
+        
+        # NSIS temp folders (multiple patterns observed)
+        "$env:LOCALAPPDATA\Temp\ns*\tmp",
+        "$env:LOCALAPPDATA\Temp\ns*\tmp\7z-out",
+        "$env:LOCALAPPDATA\Temp\nsc*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsc*.tmp\*",
+        "$env:LOCALAPPDATA\Temp\nsn*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsn*.tmp\*",
+        "$env:LOCALAPPDATA\Temp\nss*.tmp",
+        "$env:LOCALAPPDATA\Temp\nss*.tmp\*",
+        "$env:LOCALAPPDATA\Temp\nsm*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsm*.tmp\*",
+        "$env:LOCALAPPDATA\Temp\nse*.tmp",
+        "$env:LOCALAPPDATA\Temp\nse*.tmp\*",
+        "$env:LOCALAPPDATA\Temp\nsd*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsd*.tmp\*",
+        "$env:LOCALAPPDATA\Temp\nsw*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsw*.tmp\*",
+        "$env:LOCALAPPDATA\Temp\nsa*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsk*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsz*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsx*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsi*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsq*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsv*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsj*.tmp",
+        "$env:LOCALAPPDATA\Temp\nsl*.tmp",
+        
+        # AppData Roaming locations
         "$env:APPDATA\recipe-finder",
+        "$env:APPDATA\recipe-finder\*",
         "$env:APPDATA\recipe-finder\Cache",
+        "$env:APPDATA\recipe-finder\Cache\*",
+        "$env:APPDATA\recipe-finder\Cache\Cache_Data",
+        "$env:APPDATA\recipe-finder\Cache\Cache_Data\*",
         "$env:APPDATA\recipe-finder\Network",
+        "$env:APPDATA\recipe-finder\Network\*",
         "$env:APPDATA\recipe-finder\GPUCache",
+        "$env:APPDATA\recipe-finder\GPUCache\*",
         "$env:APPDATA\recipe-finder\DawnCache",
+        "$env:APPDATA\recipe-finder\DawnCache\*",
         "$env:APPDATA\recipe-finder\Local Storage",
+        "$env:APPDATA\recipe-finder\Local Storage\*",
+        "$env:APPDATA\recipe-finder\Local Storage\leveldb",
+        "$env:APPDATA\recipe-finder\Local Storage\leveldb\*",
         "$env:APPDATA\recipe-finder\Code Cache",
+        "$env:APPDATA\recipe-finder\Code Cache\*",
+        "$env:APPDATA\recipe-finder\Code Cache\js",
+        "$env:APPDATA\recipe-finder\Code Cache\js\*",
+        "$env:APPDATA\recipe-finder\Code Cache\wasm",
+        "$env:APPDATA\recipe-finder\Code Cache\wasm\*",
         "$env:APPDATA\recipe-finder\Shared Dictionary",
-        "$env:PROGRAMFILES\Google*_*\bin\updater.exe"  # Fake Google updaters
+        "$env:APPDATA\recipe-finder\Shared Dictionary\*",
+        "$env:APPDATA\recipe-finder\blob_storage",
+        "$env:APPDATA\recipe-finder\blob_storage\*", 
+
+        # Fake Google updaters in Program Files
+        "$env:PROGRAMFILES\Google2800_1615469165\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2964_1652795407\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2376_590005634\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2684_730769952\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3672_331492090\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2932_1379385484\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2880_1454035713\bin\updater.exe",
+        "$env:PROGRAMFILES\Google4004_1128420376\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3000_910267644\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2524_617276261\bin\updater.exe",
+        "$env:PROGRAMFILES\Google4040_1604070826\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2864_1640853160\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3884_1186321365\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2900_535208007\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3644_1977066409\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3688_643291376\bin\updater.exe",
+        "$env:PROGRAMFILES\Google4172_1294520376\bin\updater.exe",
+        "$env:PROGRAMFILES\Google4148_363682555\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3364_1191528651\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3684_1923883057\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2876_1421334296\bin\updater.exe",
+        "$env:PROGRAMFILES\Google4056_1292794851\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2224_1379993600\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3460_1176167927\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3372_1181581845\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3456_6541265\bin\updater.exe",
+        "$env:PROGRAMFILES\Google4160_1019479084\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2052_685679517\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2824_898964594\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3820_883048505\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3676_979635467\bin\updater.exe",
+        "$env:PROGRAMFILES\Google4052_547094287\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2920_119495389\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3728_1343518653\bin\updater.exe",
+        "$env:PROGRAMFILES\Google556_73283713\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3412_230426178\bin\updater.exe",
+        "$env:PROGRAMFILES\Google1628_819445705\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2192_1085869718\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3348_1360312030\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3768_389548418\bin\updater.exe",
+        "$env:PROGRAMFILES\Google4008_598912012\bin\updater.exe",
+        "$env:PROGRAMFILES\Google1868_1371773061\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3232_990731519\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3636_803958312\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3828_984861966\bin\updater.exe",
+        "$env:PROGRAMFILES\Google3248_242229197\bin\updater.exe",
+        "$env:PROGRAMFILES\Google2592_1120618303\bin\updater.exe",
+        "$env:PROGRAMFILES\Google1032_270740767\bin\updater.exe",
+        
+        # System resource folder modifications
+        "$env:LOCALAPPDATA\Temp\SystemResources\Recipe Finder - Recipe Lister.exe.mun"
     )
     
     # ----------------------------------------------------------------------------
@@ -223,8 +327,10 @@ $MalwareConfig = @{
         "SOFTWARE\RecipeLister",
         "SOFTWARE\Recipe Finder",
         "SOFTWARE\recipe-finder",
-        "SOFTWARE\Microsoft\Windows\Shell\Bags\*\Desktop\IconLayouts",  # Modified desktop layouts
-        "SOFTWARE\Microsoft\Spelling\Dictionaries"  # Modified spelling dictionaries
+        "SOFTWARE\Microsoft\Windows\Shell\Bags\*\Desktop\IconLayouts",
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Discardable\PostSetup\ShellNew",
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\UserAssist\*\Count\*recipe*",
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\UserAssist\*\Count\*Erpvcr*"  # ROT13 encoded
     )
     
     # ----------------------------------------------------------------------------
