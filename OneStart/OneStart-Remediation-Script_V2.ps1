@@ -348,7 +348,6 @@ $MalwareConfig = @{
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\OneStart*.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\PDFEditor*.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\AppSuites*.lnk",
-        "C:\Users\{USER}\AppData\Roaming\NodeJs",
         "C:\Users\{USER}\AppData\Roaming\PDF Editor",
         "C:\Users\{USER}\AppData\Roaming\AP-2E99C4AA-3F56-48BB-A947-2EDA163E765F",
         "C:\Users\{USER}\AppData\Roaming\PDF Editor\*.node",
