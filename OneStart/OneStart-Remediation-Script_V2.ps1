@@ -95,10 +95,6 @@ $MalwareConfig = @{
         # NEW - EpiBrowser variant processes
         "epibrowser",
         "EpiBrowser",
-        "installer",  # Generic but used by EpiBrowser
-        "setup",  # Generic but used by EpiBrowser
-        "chrome_proxy",  # NEW - EpiBrowser proxy process
-        "notification_helper",  # NEW - EpiBrowser notification
         # NEW - Additional PDF-branded variants
         "ProPDFHub",
         "SmartPdfLive",
@@ -415,7 +411,6 @@ $MalwareConfig = @{
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\EpiBrowser*.lnk",
         "C:\Users\{USER}\AppData\Local\Temp\chromium_installer.log",
         "C:\Users\{USER}\AppData\Local\Temp\MSI*.tmp",
-        "C:\Config.Msi",  # MSI installer rollback folder
         # NEW - Additional variants
         "C:\Users\{USER}\AppData\Local\JustAskJacky",
         "C:\Users\{USER}\AppData\Roaming\JustAskJacky",
@@ -471,8 +466,6 @@ $MalwareConfig = @{
         "OpenMyManual*.msi",
         "*OpenMyManual*.exe",
         "*OpenMyManual*.msi",
-        "executable.exe",
-        "executable*.exe",
         # NEW - EpiBrowser installer patterns
         "EpiBrowser*.exe",
         "EpiBrowser*.msi",
@@ -529,7 +522,6 @@ $MalwareConfig = @{
         "*JustAskJacky*.msi",
         "justaskjacky*.exe",
         "*justaskjacky*.exe",
-        "*Manual*.exe",  # Generic manual finder pattern
         "75S535 Manual*.exe",  # Specific pattern from VT
         # NEW - Additional variants
         "ManualFinder*.exe",
@@ -644,8 +636,6 @@ $MalwareConfig = @{
         "Software\OpenMyManual*",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenMyManual_is1",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\*OpenMyManual*",
-        "Software\Microsoft\RestartManager\Session*",  # Cleanup temp session keys
-        "Software\Microsoft\RestartManager\Session*",
         "Software\Classes\OpenMyManual*",
         # NEW - EpiBrowser registry patterns
         "Software\EPISoftware*",
