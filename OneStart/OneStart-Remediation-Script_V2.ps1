@@ -34,18 +34,17 @@ $MalwareConfig = @{
     # MALWARE CONFIGURATION - Metadata
     # ----------------------------------------------------------------------------
 
-    # Metadata
     Metadata = @{
-        Version = "2.1.0"  # UPDATED
-        LastUpdated = "2026-02-05"  # UPDATED
+        Version = "2.2.0"  # UPDATED
+        LastUpdated = "2026-02-11"  # UPDATED
         Author = "sentinelrshuser"
-        ThreatFamily = "OneStart.AI"
+        ThreatFamily = "EvilAI / OneStart.AI / OpenMyManual / Isher"
         FirstSeen = "2023-10"
         Severity = "HIGH"
-        Description = "Browser hijacker and PUP that installs unwanted certificates and modifies browser settings. Distributed via rebranded PDF utilities."
+        Description = "Browser hijacker and PUP family that installs unwanted certificates, modifies browser settings, and steals credential data. Distributed via rebranded PDF utilities and manual finder apps."
     }
 
-    Name = "OneStart.AI"
+    Name = "EvilAI"
     
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Processes
@@ -60,8 +59,8 @@ $MalwareConfig = @{
         "OneStartBrowser",
         "OneStartNotification",
         "OneStartTray",
-        "onestart",                # Main application (already implied by existing patterns)
-        "onestart_installer" ,
+        "onestart",
+        "onestart_installer",
         "PDFEditor",
         "PDFEditorTray",
         "PDFEditorService",
@@ -71,7 +70,6 @@ $MalwareConfig = @{
         "AppSuites",
         "AppSuitesPDF",
         "AppSuitesService",
-        # NEW - PDF Rebranding Variants (from VT report)
         "pdfzonepro",
         "viewpdftools",
         "SmartPDFPro",
@@ -87,16 +85,18 @@ $MalwareConfig = @{
         "onestartpdfdirect",
         "getonestartpdf",
         "PDFSmartKit",
-        "*41def9.msi",  # Obfuscated name variant
-        "OneStartPDF-v*.msi",  # Versioned installers
+        "*41def9.msi",
+        "OneStartPDF-v*.msi",
         "OpenMyManual",
         "OpenMyManual.tmp",
-        "executable",           # Generic installer name used in sandbox
+        "executable",
         "executable.tmp",
-        # Node.js components (specific to malware installation path)
-        #"node",                 # Will need path-specific logic
-        # Uninstaller
-        "unins000"
+        "unins000",
+        # NEW - Additional EvilAI variants from IoC file
+        "EpiBrowser",
+        "JustAskJacky",
+        "RecipeLister",
+        "TamperedChef"
     )
     
     # ----------------------------------------------------------------------------
@@ -108,7 +108,14 @@ $MalwareConfig = @{
         "OneStartService",
         "PDFEditorService",
         "AppSuitesService",  # Added for completeness
-        "OpenMyManual"
+        "OpenMyManual",
+        "AppSuitesService",
+        "OpenMyManual",
+        # NEW - Additional EvilAI variant services
+        "EpiBrowser",
+        "JustAskJacky",
+        "RecipeLister",
+        "TamperedChef"
     )
     
     # ----------------------------------------------------------------------------
@@ -150,11 +157,20 @@ $MalwareConfig = @{
             "Development",
             "Debug",
             "Echo Infini",
-            "Apollo Technologies"  # NEW - Certificate holder name
+            "Apollo Technologies",
             "OpenMyManual",
             "Pixel Catalyst",
-            "Pixel Catalyst Media"
-
+            "Pixel Catalyst Media",
+            # NEW - Additional EvilAI certificate holders from IoC file
+            "App Interplace",
+            "Byte Media",
+            "GLINT SOFTWARE",
+            "Global Tech Allies",
+            "Epi Browser",
+            "JustAskJacky",
+            "Manual Finder",
+            "Recipe Lister",
+            "Tampered Chef"
         )
         
         # Protected keywords - REPORT ONLY, DO NOT DELETE
@@ -222,7 +238,14 @@ $MalwareConfig = @{
         "pdfzonepro*",
         "viewpdftools*",
         "SmartPDFPro*",
-        "PDFSmartKit*"
+        "PDFSmartKit*",
+        "OpenMyManual*",
+        # NEW - Additional EvilAI variants
+        "EpiBrowser*",
+        "JustAskJacky*",
+        "ManualFinder*",
+        "RecipeLister*",
+        "TamperedChef*"
     )
     
     # Registered applications patterns
@@ -230,9 +253,17 @@ $MalwareConfig = @{
         "OneStart*",
         "AppSuites*",
         "PDFZonePro*",      # NEW
-        "SmartPDFPro*",     # NEW
-        "ViewPDFTools*",     # NEW
-        "OpenMyManual*"
+        "PDFZonePro*",
+        "SmartPDFPro*",
+        "ViewPDFTools*",
+        "OpenMyManual*",
+        # NEW - Additional EvilAI variants
+        "EpiBrowser*",
+        "JustAskJacky*",
+        "ManualFinder*",
+        "RecipeLister*",
+        "TamperedChef*"
+
 
     )
     
@@ -296,7 +327,34 @@ $MalwareConfig = @{
         "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\OpenMyManual.exe.config",
         "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\OpenMyManual.exe.manifest",
         # Icon cache (modified by installer)
-        "C:\Users\{USER}\AppData\Local\Microsoft\Windows\Explorer\iconcache_*.db"
+        "C:\Users\{USER}\AppData\Local\Microsoft\Windows\Explorer\iconcache_*.db",
+        # NEW - Browser credential data duplication (from IoC file)
+        "C:\Users\{USER}\AppData\Local\Microsoft\Edge\User Data\Default\Web Data Sync",
+        "C:\Users\{USER}\AppData\Local\Microsoft\Edge\User Data\Default\Preferences Sync",
+        "C:\Users\{USER}\AppData\Local\Google\Chrome\User Data\Default\Web Data Sync",
+        "C:\Users\{USER}\AppData\Local\Google\Chrome\User Data\Default\Preferences Sync",
+        # NEW - Additional EvilAI variant paths
+        "C:\Users\{USER}\AppData\Local\EpiBrowser",
+        "C:\Users\{USER}\AppData\Roaming\EpiBrowser",
+        "C:\Users\{USER}\AppData\Local\Programs\EpiBrowser",
+        "C:\Users\{USER}\Desktop\EpiBrowser.lnk",
+        "C:\Users\{USER}\AppData\Local\JustAskJacky",
+        "C:\Users\{USER}\AppData\Roaming\JustAskJacky",
+        "C:\Users\{USER}\AppData\Local\Programs\JustAskJacky",
+        "C:\Users\{USER}\Desktop\JustAskJacky.lnk",
+        "C:\Users\{USER}\AppData\Local\ManualFinder",
+        "C:\Users\{USER}\AppData\Roaming\ManualFinder",
+        "C:\Users\{USER}\AppData\Local\Programs\ManualFinder",
+        "C:\Users\{USER}\Desktop\ManualFinder.lnk",
+        "C:\Users\{USER}\AppData\Local\RecipeLister",
+        "C:\Users\{USER}\AppData\Roaming\RecipeLister",
+        "C:\Users\{USER}\AppData\Local\Programs\RecipeLister",
+        "C:\Users\{USER}\Desktop\RecipeLister.lnk",
+        "C:\Users\{USER}\AppData\Local\TamperedChef",
+        "C:\Users\{USER}\AppData\Roaming\TamperedChef",
+        "C:\Users\{USER}\AppData\Local\Programs\TamperedChef",
+        "C:\Users\{USER}\Desktop\TamperedChef.lnk"
+
 
     )
     
@@ -340,8 +398,29 @@ $MalwareConfig = @{
         "*OpenMyManual*.exe",
         "*OpenMyManual*.msi",
         "executable.exe",     # Generic name used in sandbox
-        "executable*.exe"
-
+        "executable.exe",
+        "executable*.exe",
+        # NEW - Additional EvilAI variant downloads
+        "EpiBrowser*.exe",
+        "EpiBrowser*.msi",
+        "*EpiBrowser*.exe",
+        "*EpiBrowser*.msi",
+        "JustAskJacky*.exe",
+        "JustAskJacky*.msi",
+        "*JustAskJacky*.exe",
+        "*JustAskJacky*.msi",
+        "ManualFinder*.exe",
+        "ManualFinder*.msi",
+        "*ManualFinder*.exe",
+        "*ManualFinder*.msi",
+        "RecipeLister*.exe",
+        "RecipeLister*.msi",
+        "*RecipeLister*.exe",
+        "*RecipeLister*.msi",
+        "TamperedChef*.exe",
+        "TamperedChef*.msi",
+        "*TamperedChef*.exe",
+        "*TamperedChef*.msi"
     )
     
     # System-level paths
@@ -354,7 +433,19 @@ $MalwareConfig = @{
         "C:\Program Files\OneStart*",       # NEW - Potential installation location
         "C:\Program Files (x86)\OneStart*",  # NEW - Potential installation location
         "C:\Program Files\OpenMyManual",
-        "C:\Program Files (x86)\OpenMyManual"
+        "C:\Program Files (x86)\OpenMyManual",
+        "C:\Windows\System32\Tasks\ffe2391a-7849-449f-bb31-6df6edbb9053",
+        # NEW - Additional EvilAI variant system paths
+        "C:\Program Files\EpiBrowser",
+        "C:\Program Files (x86)\EpiBrowser",
+        "C:\Program Files\JustAskJacky",
+        "C:\Program Files (x86)\JustAskJacky",
+        "C:\Program Files\ManualFinder",
+        "C:\Program Files (x86)\ManualFinder",
+        "C:\Program Files\RecipeLister",
+        "C:\Program Files (x86)\RecipeLister",
+        "C:\Program Files\TamperedChef",
+        "C:\Program Files (x86)\TamperedChef"
     )
     
     # ----------------------------------------------------------------------------
@@ -371,8 +462,23 @@ $MalwareConfig = @{
         "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\appsuites.exe",
         "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OpenMyManual_RASAPI32",
         "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OpenMyManual_RASMANCS",
-        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\openmymanual.exe"
-
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\openmymanual.exe",
+        # NEW - Additional EvilAI variants
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\EpiBrowser_RASAPI32",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\EpiBrowser_RASMANCS",
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\epibrowser.exe",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\JustAskJacky_RASAPI32",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\JustAskJacky_RASMANCS",
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\justaskjacky.exe",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\ManualFinder_RASAPI32",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\ManualFinder_RASMANCS",
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\manualfinder.exe",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\RecipeLister_RASAPI32",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\RecipeLister_RASMANCS",
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\recipelister.exe",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\TamperedChef_RASAPI32",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\TamperedChef_RASMANCS",
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\tamperedchef.exe"
     )
     
     # Registry patterns for user hives (HKU) - for cleanup
@@ -391,7 +497,7 @@ $MalwareConfig = @{
         "Software\Classes\OSBHTML*",
         "Software\Classes\AppSuites*",  # NEW
         # COM Object Registrations (CLSID entries)
-        "Software\Classes\CLSID\{4DAC24AB-B340-4B7E-AD01-1504A7F59EEA}", 
+        "Software\Classes\CLSID\{4DAC24AB-B340-4B7E-AD01-1504A7F59EEA}",
         "Software\Classes\CLSID\{75828ED1-7BE8-45D0-8950-AA85CBF74510}",
         "Software\Classes\CLSID\{A2C6CB58-C076-425C-ACB7-6D19D64428CD}",
         "Software\Classes\CLSID\{A45DDD96-C17C-50A3-BD69-8D064F864B24}",
@@ -401,8 +507,29 @@ $MalwareConfig = @{
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenMyManual_is1",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\*OpenMyManual*",
         "Software\Microsoft\RestartManager\Session*",  # Cleanup temp session keys
-        "Software\Classes\OpenMyManual*"
-
+        "Software\Microsoft\RestartManager\Session*",
+        "Software\Classes\OpenMyManual*",
+        # NEW - Additional EvilAI variants
+        "Software\EpiBrowser*",
+        "Software\JustAskJacky*",
+        "Software\ManualFinder*",
+        "Software\RecipeLister*",
+        "Software\TamperedChef*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*EpiBrowser*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*JustAskJacky*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*ManualFinder*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*RecipeLister*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*TamperedChef*",
+        "Software\Classes\EpiBrowser*",
+        "Software\Classes\JustAskJacky*",
+        "Software\Classes\ManualFinder*",
+        "Software\Classes\RecipeLister*",
+        "Software\Classes\TamperedChef*",
+        "Software\Clients\StartMenuInternet\EpiBrowser*",
+        "Software\Clients\StartMenuInternet\JustAskJacky*",
+        "Software\Clients\StartMenuInternet\ManualFinder*",
+        "Software\Clients\StartMenuInternet\RecipeLister*",
+        "Software\Clients\StartMenuInternet\TamperedChef*"
     )
     
     # ----------------------------------------------------------------------------
@@ -413,10 +540,16 @@ $MalwareConfig = @{
     BrowserStartMenuPatterns = @(
         "OneStart*",
         "AppSuites*",
-        "PDFZonePro*",      # NEW
-        "SmartPDFPro*",     # NEW
-        "ViewPDFTools*",     # NEW
-        "OpenMyManual*"
+        "PDFZonePro*",
+        "SmartPDFPro*",
+        "ViewPDFTools*",
+        "OpenMyManual*",
+        # NEW - Additional EvilAI variants
+        "EpiBrowser*",
+        "JustAskJacky*",
+        "ManualFinder*",
+        "RecipeLister*",
+        "TamperedChef*"
     )
 
     # ----------------------------------------------------------------------------
@@ -429,10 +562,16 @@ $MalwareConfig = @{
         "OSBHTML*",
         "AppSuites*",
         "PDFEditor*",
-        "PDFZonePro*",      # NEW
-        "SmartPDFPro*",     # NEW
-        "ViewPDFTools*",     # NEW
-        "OpenMyManual*"      # NEW
+        "PDFZonePro*",
+        "SmartPDFPro*",
+        "ViewPDFTools*",
+        "OpenMyManual*",
+        # NEW - Additional EvilAI variants
+        "EpiBrowser*",
+        "JustAskJacky*",
+        "ManualFinder*",
+        "RecipeLister*",
+        "TamperedChef*"
     )
 
     # ----------------------------------------------------------------------------
@@ -444,10 +583,16 @@ $MalwareConfig = @{
         "OneStart*",
         "AppSuites*",
         "PDFEditor*",
-        "PDFZonePro*",      # NEW
-        "SmartPDFPro*",     # NEW
-        "ViewPDFTools*",     # NEW
-        "OpenMyManual*"      # NEW
+        "PDFZonePro*",
+        "SmartPDFPro*",
+        "ViewPDFTools*",
+        "OpenMyManual*",
+        # NEW - Additional EvilAI variants
+        "EpiBrowser*",
+        "JustAskJacky*",
+        "ManualFinder*",
+        "RecipeLister*",
+        "TamperedChef*"
     )
 }
 
