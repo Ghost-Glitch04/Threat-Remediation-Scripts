@@ -88,7 +88,15 @@ $MalwareConfig = @{
         "getonestartpdf",
         "PDFSmartKit",
         "*41def9.msi",  # Obfuscated name variant
-        "OneStartPDF-v*.msi"  # Versioned installers
+        "OneStartPDF-v*.msi",  # Versioned installers
+        "OpenMyManual",
+        "OpenMyManual.tmp",
+        "executable",           # Generic installer name used in sandbox
+        "executable.tmp",
+        # Node.js components (specific to malware installation path)
+        #"node",                 # Will need path-specific logic
+        # Uninstaller
+        "unins000"
     )
     
     # ----------------------------------------------------------------------------
@@ -99,7 +107,8 @@ $MalwareConfig = @{
     Services = @(
         "OneStartService",
         "PDFEditorService",
-        "AppSuitesService"  # Added for completeness
+        "AppSuitesService",  # Added for completeness
+        "OpenMyManual"
     )
     
     # ----------------------------------------------------------------------------
@@ -113,7 +122,8 @@ $MalwareConfig = @{
             "612DE7BA0369AFF3507DFF7A39DF2F4F7A82E51D",  # OneStart Technologies LLC
             "BCBAA4F693051D69280D19D69DE73832B77B1C25",  # OneStart Technologies LLC
             "A2278EB6A438DC528F3EBFEB238028C474401BEF",  # Echo Infini Sdn. Bhd.
-            "B515DF656EE4C27ED1F9FEBC2CE6F9756E6F023B"   # NEW - Apollo Technologies Inc. (REVOKED)
+            "B515DF656EE4C27ED1F9FEBC2CE6F9756E6F023B",   # NEW - Apollo Technologies Inc. (REVOKED)
+            "2D4129109DBF921DB0BC48D41DA32DA0FF1BF024"   # Pixel Catalyst Media LLC (REVOKED)
         )
         
         # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
@@ -124,6 +134,8 @@ $MalwareConfig = @{
             "58 2C 3A 4B 99 34 B7 EC 10 28 B6 38",                 # Echo Infini Sdn. Bhd. (formatted)
             "7209B6BCFD61AFA5A476DBF0",                            # NEW - Apollo Technologies Inc.
             "72 09 B6 BC FD 61 AF A5 A4 76 DB F0"                  # NEW - Apollo Technologies Inc. (formatted)
+            "7D06C48CCB0E09945CE6557C7C8EB5A8",                    # Pixel Catalyst Media LLC
+            "7D 06 C4 8C CB 0E 09 94 5C E6 55 7C 7C 8E B5 A8"      # Pixel Catalyst Media LLC (formatted)
         )
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
@@ -139,6 +151,10 @@ $MalwareConfig = @{
             "Debug",
             "Echo Infini",
             "Apollo Technologies"  # NEW - Certificate holder name
+            "OpenMyManual",
+            "Pixel Catalyst",
+            "Pixel Catalyst Media"
+
         )
         
         # Protected keywords - REPORT ONLY, DO NOT DELETE
@@ -154,7 +170,8 @@ $MalwareConfig = @{
             "Thawte",
             "GeoTrust",
             "Comodo",
-            "GlobalSign"  # Added legitimate CA (note: GlobalSign issued the malicious cert but is itself legitimate)
+            "GlobalSign",  # Added legitimate CA (note: GlobalSign issued the malicious cert but is itself legitimate)
+            "Sectigo"
         )
         
         # Certificate stores to scan (ordered by risk level)
@@ -183,7 +200,8 @@ $MalwareConfig = @{
         "PDFEditorScheduledTask",
         "PDFEditorUScheduledTask",
         "sys_component_health_*",
-        "AppSuitesTask*"  # Added for AppSuites variant
+        "AppSuitesTask*",  # Added for AppSuites variant
+        "OpenMyManual*"
     )
     
     # ----------------------------------------------------------------------------
@@ -213,7 +231,9 @@ $MalwareConfig = @{
         "AppSuites*",
         "PDFZonePro*",      # NEW
         "SmartPDFPro*",     # NEW
-        "ViewPDFTools*"     # NEW
+        "ViewPDFTools*",     # NEW
+        "OpenMyManual*"
+
     )
     
     # User-specific paths (exact matches only)
@@ -246,6 +266,38 @@ $MalwareConfig = @{
         "C:\Users\{USER}\AppData\Roaming\PDF Editor\Cache",
         "C:\Users\{USER}\AppData\Local\OneStart.ai\Cache",
         "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStart\Application"  # NEW - Main installation path from VT report
+        #OpenMyManual specific paths
+        # Primary installation directory (from VT report behavior)
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual",
+        # Temp extraction folders (INNO Setup pattern: is-[A-Z0-9]{5}.tmp)
+        "C:\Users\{USER}\AppData\Local\Temp\is-*.tmp",
+        # Specific files from VT report
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\OpenMyManual.exe",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\unins000.exe",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\unins000.dat",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\a550af77-44cd-4a4b-b160-c0fa836d24f0.js",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\log.txt",
+        # Node.js runtime
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\node",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\node\node.exe",
+        # WebView2 components
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\Microsoft.Web.WebView2.Core.dll",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\Microsoft.Web.WebView2.Wpf.dll",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\Microsoft.Web.WebView2.WinForms.dll",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\runtimes",
+        # WebView2 data
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\OpenMyManual.exe.WebView2",
+        # Shortcuts
+        "C:\Users\{USER}\Desktop\OpenMyManual.lnk",
+        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\OpenMyManual.lnk",
+        "C:\Users\{USER}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\OpenMyManual*.lnk",
+        # Application manifest/config
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\OpenMyManual.application",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\OpenMyManual.exe.config",
+        "C:\Users\{USER}\AppData\Local\Programs\OpenMyManual\OpenMyManual.exe.manifest",
+        # Icon cache (modified by installer)
+        "C:\Users\{USER}\AppData\Local\Microsoft\Windows\Explorer\iconcache_*.db"
+
     )
     
     # ----------------------------------------------------------------------------
@@ -282,6 +334,14 @@ $MalwareConfig = @{
         "onestart_installer*.exe",  # NEW - From VT network activity
         "*41def9.msi",               # NEW - Obfuscated name variant
         "OneStartPDF-v*.msi"         # NEW - Versioned installers
+        # OpenMyManual specific patterns
+        "OpenMyManual*.exe",
+        "OpenMyManual*.msi",
+        "*OpenMyManual*.exe",
+        "*OpenMyManual*.msi",
+        "executable.exe",     # Generic name used in sandbox
+        "executable*.exe"
+
     )
     
     # System-level paths
@@ -292,7 +352,9 @@ $MalwareConfig = @{
         "C:\Program Files\AppSuites",
         "C:\Program Files (x86)\AppSuites",
         "C:\Program Files\OneStart*",       # NEW - Potential installation location
-        "C:\Program Files (x86)\OneStart*"  # NEW - Potential installation location
+        "C:\Program Files (x86)\OneStart*",  # NEW - Potential installation location
+        "C:\Program Files\OpenMyManual",
+        "C:\Program Files (x86)\OpenMyManual"
     )
     
     # ----------------------------------------------------------------------------
@@ -306,7 +368,11 @@ $MalwareConfig = @{
         "HKLM:\Software\WOW6432Node\Microsoft\Tracing\AppSuites_RASAPI32",
         "HKLM:\Software\WOW6432Node\Microsoft\Tracing\AppSuites_RASMANCS",
         "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\onestart.exe",
-        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\appsuites.exe"
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\appsuites.exe",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OpenMyManual_RASAPI32",
+        "HKLM:\Software\WOW6432Node\Microsoft\Tracing\OpenMyManual_RASMANCS",
+        "HKLM:\Software\Microsoft\MediaPlayer\ShimInclusionList\openmymanual.exe"
+
     )
     
     # Registry patterns for user hives (HKU) - for cleanup
@@ -329,7 +395,14 @@ $MalwareConfig = @{
         "Software\Classes\CLSID\{75828ED1-7BE8-45D0-8950-AA85CBF74510}",
         "Software\Classes\CLSID\{A2C6CB58-C076-425C-ACB7-6D19D64428CD}",
         "Software\Classes\CLSID\{A45DDD96-C17C-50A3-BD69-8D064F864B24}",
-        "Software\Classes\CLSID\{B5B6376D-5E59-5CB2-A34D-617C21A3A240}"
+        "Software\Classes\CLSID\{B5B6376D-5E59-5CB2-A34D-617C21A3A240}",
+        # NEW - OpenMyManual specific registry patterns
+        "Software\OpenMyManual*",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenMyManual_is1",
+        "Software\Microsoft\Windows\CurrentVersion\Uninstall\*OpenMyManual*",
+        "Software\Microsoft\RestartManager\Session*",  # Cleanup temp session keys
+        "Software\Classes\OpenMyManual*"
+
     )
     
     # ----------------------------------------------------------------------------
@@ -342,7 +415,8 @@ $MalwareConfig = @{
         "AppSuites*",
         "PDFZonePro*",      # NEW
         "SmartPDFPro*",     # NEW
-        "ViewPDFTools*"     # NEW
+        "ViewPDFTools*",     # NEW
+        "OpenMyManual*"
     )
 
     # ----------------------------------------------------------------------------
@@ -357,7 +431,8 @@ $MalwareConfig = @{
         "PDFEditor*",
         "PDFZonePro*",      # NEW
         "SmartPDFPro*",     # NEW
-        "ViewPDFTools*"     # NEW
+        "ViewPDFTools*",     # NEW
+        "OpenMyManual*"      # NEW
     )
 
     # ----------------------------------------------------------------------------
@@ -371,7 +446,8 @@ $MalwareConfig = @{
         "PDFEditor*",
         "PDFZonePro*",      # NEW
         "SmartPDFPro*",     # NEW
-        "ViewPDFTools*"     # NEW
+        "ViewPDFTools*",     # NEW
+        "OpenMyManual*"      # NEW
     )
 }
 
