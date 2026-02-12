@@ -123,7 +123,6 @@ $MalwareConfig = @{
             "Thawte",
             "GeoTrust",
             "Comodo",
-            "Sectigo",
             "GlobalSign"
         )
         
