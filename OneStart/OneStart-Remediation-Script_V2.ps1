@@ -2583,8 +2583,10 @@ function Remove-MalwareTask {
     Write-Log "  Tasks Not Found: $($RemediationResults.Summary.TasksNotFound)" -Level INFO
     Write-Log "  ---" -Level INFO
     Write-Log "  TaskCache Checked: $($RemediationResults.Summary.TaskCacheChecked)" -Level INFO
+    Write-Log "  TaskCache Found: $($RemediationResults.Summary.TaskCacheFound)" -Level INFO
     Write-Log "  TaskCache Removed: $($RemediationResults.Summary.TaskCacheRemoved)" -Level SUCCESS
     Write-Log "  TaskCache Failed: $($RemediationResults.Summary.TaskCacheFailed)" -Level ERROR
+    Write-Log "  TaskCache Not Found: $($RemediationResults.Summary.TaskCacheNotFound)" -Level INFO
     Write-Log "========================================" -Level INFO
 
     # Record module execution time
@@ -2670,7 +2672,6 @@ function Remove-TaskCacheOrphans {
             $guidString = if ($taskId) { "{$taskId}" } else { "UNKNOWN" }
             Write-Log "      [FOUND] GUID: $guidString" -Level WARNING
             
-            $removalSuccess = $true
             $removedCount = 0
             
             # If we have a valid GUID, remove related subkeys
@@ -2699,7 +2700,15 @@ function Remove-TaskCacheOrphans {
                         # Only log errors for actual failures (not "key doesn't exist")
                         if ($_.Exception.Message -notlike "*cannot find*") {
                             Write-Log "        [WARNING] $($subKey.Type) entry: $($_.Exception.Message)" -Level WARNING
+                            
+                            # Track the failure in results
+                            $record = New-TaskCacheRecord -TaskName $taskName -GUID $guidString `
+                                -CacheType $subKey.Type -Status $StatusLevels.Failed `
+                                -ErrorMessage $_.Exception.Message
+                            $RemediationResults.TaskCache.Failed += $record
+                            $RemediationResults.Summary.TaskCacheFailed++
                         }
+                        # Note: "cannot find" errors are silently ignored (key already doesn't exist)
                     }
                 }
             }
@@ -2722,7 +2731,6 @@ function Remove-TaskCacheOrphans {
                     -CacheType "Tree" -Status $StatusLevels.Failed -ErrorMessage $_.Exception.Message
                 $RemediationResults.TaskCache.Failed += $record
                 $RemediationResults.Summary.TaskCacheFailed++
-                $removalSuccess = $false
             }
             
             # Log cleanup summary for this task
