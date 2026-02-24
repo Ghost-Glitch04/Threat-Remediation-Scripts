@@ -35,8 +35,8 @@ $MalwareConfig = @{
     # ----------------------------------------------------------------------------
 
     Metadata = @{
-        Version = "2.2.0"  # UPDATED
-        LastUpdated = "2026-02-11"  # UPDATED
+        Version = "2.3.0"  # UPDATED
+        LastUpdated = "2026-02-24"  # UPDATED
         Author = "sentinelrshuser"
         ThreatFamily = "EvilAI / OneStart.AI / OpenMyManual / Isher"
         FirstSeen = "2023-10"
@@ -161,6 +161,7 @@ $MalwareConfig = @{
         MaliciousThumbprints = @(
             "612DE7BA0369AFF3507DFF7A39DF2F4F7A82E51D",  # OneStart Technologies LLC
             "BCBAA4F693051D69280D19D69DE73832B77B1C25",  # OneStart Technologies LLC
+            "612DE79A0369AFF3507DEF7A39DF2F4F7A82E51D",  # OneStart Technologies LLC
             "A2278EB6A438DC528F3EBFEB238028C474401BEF",  # Echo Infini Sdn. Bhd.
             "B515DF656EE4C27ED1F9FEBC2CE6F9756E6F023B",   # NEW - Apollo Technologies Inc. (REVOKED)
             "2D4129109DBF921DB0BC48D41DA32DA0FF1BF024",   # Pixel Catalyst Media LLC (REVOKED)
@@ -170,14 +171,16 @@ $MalwareConfig = @{
         
         # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
         MaliciousSerialNumbers = @(
+            "09561E1A16C2BE16570AC674712B56F1",                    # NEW - OneStart Technologies LLC (VT report)
+            "09 56 1E 1A 16 C2 BE 16 57 0A C6 74 71 2B 56 F1",     # NEW - OneStart Technologies LLC (VT report, formatted)
             "0333EAFBA707AABFD12644AEDC2E8C4E",                    # OneStart Technologies LLC
             "03 33 EA FB A7 07 AA BF D1 26 44 AE DC 2E 8C 4E",     # OneStart Technologies LLC (formatted)
             "582C3A4B9934B7EC1028B638",                            # Echo Infini Sdn. Bhd.
             "58 2C 3A 4B 99 34 B7 EC 10 28 B6 38",                 # Echo Infini Sdn. Bhd. (formatted)
             "7209B6BCFD61AFA5A476DBF0",                            # NEW - Apollo Technologies Inc.
-            "72 09 B6 BC FD 61 AF A5 A4 76 DB F0"                  # NEW - Apollo Technologies Inc. (formatted)
+            "72 09 B6 BC FD 61 AF A5 A4 76 DB F0",                 # NEW - Apollo Technologies Inc. (formatted)
             "7D06C48CCB0E09945CE6557C7C8EB5A8",                    # Pixel Catalyst Media LLC
-            "7D 06 C4 8C CB 0E 09 94 5C E6 55 7C 7C 8E B5 A8",      # Pixel Catalyst Media LLC (formatted)
+            "7D 06 C4 8C CB 0E 09 94 5C E6 55 7C 7C 8E B5 A8",     # Pixel Catalyst Media LLC (formatted)
             "71F4DED233C732913D3EF342",                            # NEW - Byte Media Sdn. Bhd. (EpiBrowser)
             "71 F4 DE D2 33 C7 32 91 3D 3E F3 42",                 # NEW - Byte Media Sdn. Bhd. (EpiBrowser, formatted)
             "573FD429CFC430E46C5797AC5B84BCBD",                    # NEW - App Interplace LLC (JustAskJacky)
@@ -189,6 +192,8 @@ $MalwareConfig = @{
             "OneStart",
             "OneStart.AI",
             "One Start",
+            "OneStart Technologies",  # NEW - Full name from VT cert
+            "OneStart Technologies LLC",  # NEW - Full name from VT cert
             "Glint",
             "Electron",
             "DO_NOT_TRUST",
@@ -337,8 +342,14 @@ $MalwareConfig = @{
         "C:\Users\{USER}\OneStart.ai",
         "C:\Users\{USER}\AppData\Local\AppSuites",
         "C:\Users\{USER}\AppData\Roaming\AppSuites",
-        # NEW - OneStart Installer temp folder (from VT report behavior)
+        # OneStart Installer temp folder
         "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStart Installer",
+        # NEW - OneStart Updater versioned folders
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStartUpdater",
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStartUpdater\*",
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStartUpdater\134.0.6998.112",
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStartUpdater\*\Crashpad",
+        "C:\Users\{USER}\AppData\Local\OneStart.ai\OneStartUpdater\*\Crashpad\*",
         "C:\Users\{USER}\Desktop\OneStart.lnk",
         "C:\Users\{USER}\Desktop\AppSuites*.lnk",
         "C:\Users\{USER}\AppData\Roaming\Microsoft\Internet Explorer\Quick Launch\OneStart.lnk",
@@ -629,6 +640,10 @@ $MalwareConfig = @{
         "Software\Classes\CLSID\{4DAC24AB-B340-4B7E-AD01-1504A7F59EEA}",
         "Software\Classes\CLSID\{75828ED1-7BE8-45D0-8950-AA85CBF74510}",
         "Software\Classes\CLSID\{A2C6CB58-C076-425C-ACB7-6D19D64428CD}",  # EpiBrowser notification helper
+        # NEW - Registry GUIDs from VT report (ClientState)
+        "Software\OneStart.ai\Update\ClientState\{AD1170F0-78AD-424E-AC07-EC3941EF748C}",
+        "Software\OneStart.ai\Update\ClientState\*",  # Pattern for any ClientState GUID
+        # OpenMyManual specific registry patterns
         "Software\Classes\CLSID\{A45DDD96-C17C-50A3-BD69-8D064F864B24}",
         "Software\Classes\CLSID\{B5B6376D-5E59-5CB2-A34D-617C21A3A240}",
         # NEW - OpenMyManual specific registry patterns
