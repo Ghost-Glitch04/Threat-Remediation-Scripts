@@ -1,5 +1,6 @@
 # Remove-McAfeeWebAvisor.ps1
 # This script is designed to remove McAfee WebAdvisor from a Windows system.
+# This version runs as an unattended silent uninstall, and will not prompt the user for any input.
 
 # Define the path to McAfee WebAdvisor
 $webAdvisorPath = "C:\Program Files\McAfee\WebAdvisor"
