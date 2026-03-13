@@ -8,7 +8,7 @@ if ($process) {
 }
 Start-Sleep -Seconds 2
 
-$user_list = Get-Item C:\users\* | Select-Object Name -ExpandProperty Name
+$user_list = Get-ChildItem C:\users\* -Directory | Select-Object -ExpandProperty Name
 foreach ($user in $user_list) {
     $installers = @(Get-ChildItem "C:\users\$user\Downloads" -Recurse -Filter "OneBrowser*.exe" | ForEach-Object { $_.FullName })
     foreach ($install in $installers) {
