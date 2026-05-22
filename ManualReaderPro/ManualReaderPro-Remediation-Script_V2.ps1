@@ -1,4 +1,4 @@
-# ============================================================================ #
+﻿# ============================================================================ #
 # Malware Remediation Framework - OneStart.AI
 # ============================================================================ #
 # Author: sentinelrshuser
@@ -41,7 +41,7 @@ $MalwareConfig = @{
         ThreatFamily        = "ManualReaderPro"
         FirstSeen           = "2025-07-10"
         Severity            = "CRITICAL"
-        Description         = "ManualReaderPro — Inno Setup-based installer signed with a REVOKED Sectigo EV certificate (Native Click Marketing LLC). Drops Node.js runtime and bundled payload, registers a UUID-named scheduled task from %TEMP%, executes PowerShell download-and-execute payload, fingerprints host via MachineGuid, performs geofencing checks, and self-deletes installer artifacts. 35/75 VT detections."
+        Description         = "ManualReaderPro - Inno Setup-based installer signed with a REVOKED Sectigo EV certificate (Native Click Marketing LLC). Drops Node.js runtime and bundled payload, registers a UUID-named scheduled task from %TEMP%, executes PowerShell download-and-execute payload, fingerprints host via MachineGuid, performs geofencing checks, and self-deletes installer artifacts. 35/75 VT detections."
         CVSS                = "8.5"
         ThreatIntelSource   = "VirusTotal - 35/75 detections"
         SHA256              = "0abd1e39e17fa99366c8f1cc9171730867b6e86f6362b0492a090170f0305e55"
@@ -76,19 +76,19 @@ $MalwareConfig = @{
     # ----------------------------------------------------------------------------
 
     Certificates = @{
-        # PRIORITY 1 — REVOKED signer certificate (Native Click Marketing LLC)
+        # PRIORITY 1 - REVOKED signer certificate (Native Click Marketing LLC)
         # Status: "Trust for this certificate or one of the certificates in the
         #          certificate chain has been revoked."
         MaliciousThumbprints = @(
             "2435F8517B48DACB8B000DB25A176D12714BD628"   # Native Click Marketing LLC (REVOKED)
         )
 
-        # PRIORITY 2 — Serial numbers associated with the revoked signer
+        # PRIORITY 2 - Serial numbers associated with the revoked signer
         MaliciousSerialNumbers = @(
             "313CA9C838CDDB21E4E354E6DBF0216A"           # Native Click Marketing LLC
         )
 
-        # PRIORITY 3 — Suspicious keywords to flag for analysis
+        # PRIORITY 3 - Suspicious keywords to flag for analysis
         SuspiciousKeywords = @(
             "Native Click Marketing"
             "ManualReaderPro"
@@ -237,7 +237,7 @@ $MalwareConfig = @{
         "ManualReaderPro"
         "view.manualreaderproweb.com"
         "install.manualreaderproweb.com"
-        "api.mixpnl.com"             # Typosquatted Mixpanel domain — suspicious
+        "api.mixpnl.com"             # Typosquatted Mixpanel domain - suspicious
     )
 }
 

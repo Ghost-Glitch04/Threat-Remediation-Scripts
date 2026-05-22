@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"c:\\\\github\\\\Threat-Remediation-Scripts\\\\ManualReaderPro\\\\ManualReaderPro-Remediation-Script_V2.ps1\"\\); \"First 3 bytes: $\\($bytes[0..2] -join ','\\)\"; \"Has BOM \\(EF BB BF\\): $\\($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF\\)\")"
+    ]
+  }
+}
