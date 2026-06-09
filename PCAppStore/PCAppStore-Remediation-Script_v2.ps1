@@ -1,5 +1,5 @@
 # ============================================================================ #
-# Malware Remediation Framework - OneStart.AI
+# Malware Remediation Framework - PCAppStore
 # ============================================================================ #
 # Author: sentinelrshuser
 # Purpose: Centralized configuration for malware remediation
@@ -25,89 +25,212 @@ try {
     exit 1
 }
 
-# ----------------------------------------------------------------------------
-# MALWARE CONFIGURATION
-# ----------------------------------------------------------------------------
+# =============================================================================
+# MALWARE CONFIGURATION — PCAppStore / VeryFast
+# =============================================================================
+# Version       : 2.1
+# Last Updated  : 2026-06-09
+# Author        : sentinelrshuser
+# ThreatFamily  : adware.pcappstore / trojan.pcappstore
+# FirstSeen     : 2023-10
+# BuildVersion  : 2046  (compiled 2026-05-29T13:42:11, PDB path confirms)
+# Severity      : CRITICAL
+#
+# Change Log (v1.0 → v2.0)
+# ─────────────────────────────────────────────────────────────────────────────
+# [NEW]     PcAppStoreSrv.exe — new Windows service component; installs itself
+#           via sc.exe with a randomized service name (e.g. "YcAai"); creates
+#           Global\PcAppSharedMemoryMutex; drops servicereg.log / servicestart.log
+#
+# [UPDATED] PCAppStore.exe — new SHA256/MD5 hashes for build 2046; now embeds
+#           Microsoft.Management.Deployment.OutOfProc (WinGet), full SQLite3
+#           shell, and a WINMD resource; sets HKLM\Software\Microsoft\DownloadManager
+#
+# [UPDATED] Watchdog.exe — new SHA256/MD5 hashes for build 2046; beacon
+#           endpoint migrated from pcapp.store/pixel.gif to
+#           d74queuslupub.cloudfront.net/p.gif; installs GoProxy self-signed
+#           root CA into HKCU certificate store (HTTPS interception risk)
+#
+# [UPDATED] NetworkIOCs — expanded pcapp.store IP pool (+6 IPs); added
+#           Watchdog CloudFront CDN IPs; added /p.gif C2 path
+#
+# [UPDATED] Certificates — added new pcapp.store TLS thumbprint/serial;
+#           added rogue GoProxy root CA thumbprint installed by Watchdog
+#
+# [UPDATED] RegistryHKLM — added WOW6432Node\PCAppStore and
+#           Software\Microsoft\DownloadManager
+#
+# [UPDATED] RegistryHKUPatterns — added GoProxy root CA cert registry path
+#
+# [NEW]     Mutexes section — Global\PcAppSharedMemoryMutex
+#
+# [NEW]     RuntimeArtifacts section — servicereg.log, servicestart.log
+#
+# Change Log (v2.0 → v2.1)
+# ─────────────────────────────────────────────────────────────────────────────
+# [NEW]     Uninstaller.exe — fully profiled build 2046 uninstaller component;
+#           adds SHA256/MD5/SHA1 hashes; confirms PCAppStoreMutex (shared with
+#           all components); uses advapi32 service control APIs (OpenSCManager,
+#           ControlService, DeleteService) and RegDeleteKeyExW/RegDeleteTreeW
+#           for self-removal; checks admin token via CheckTokenMembership
+#
+# [UPDATED] AutoUpdater.exe — updated SHA256/MD5/SHA1 hashes for build 2046;
+#           legacy v1 hash moved to KnownHashes.Legacy section; confirmed true
+#           C2 send/receive capability (WS2_32 raw sockets + WinHTTP + WinINET);
+#           implements own TLS stack via SSPI/CredSSP/SChannel; uses COM
+#           (CoCreateInstance) and RPCRT4 UUIDs for installation fingerprinting;
+#           highest VT detection rate of all components at 31/75
+#
+# [UPDATED] Mutexes — added PCAppStoreMutex (created by Uninstaller.exe and
+#           confirmed also by PCAppStore.exe process tree in sandbox); distinct
+#           from PcAppSharedMemoryMutex used by the SRV component
+#
+# [UPDATED] KnownHashes — added all Uninstaller.exe hashes; updated
+#           AutoUpdater hashes; moved legacy AutoUpdater hash to Legacy section
+#
+# [UPDATED] ThreatIntelSource — added VT scores for Uninstaller and AutoUpdater
+#
+# [DESIGN NOTE] Service name randomization: PcAppStoreSrv registers with a
+#   randomly generated service name at install time. Remediation scripts MUST
+#   enumerate services by binpath content (e.g. *PcAppStoreSrv.exe*) rather
+#   than by service name. Use:
+#     Get-WmiObject Win32_Service | Where-Object { $_.PathName -like '*PcAppStore*' }
+#
+# [DESIGN NOTE] Rogue root CA: Watchdog.exe installs a GoProxy self-signed
+#   root certificate into HKCU\...\SystemCertificates\Root, enabling HTTPS
+#   interception of the infected user's traffic. The root CA removal phase
+#   MUST run before any network-based trust verification.
+#
+# [DESIGN NOTE] Uninstaller admin check: Uninstaller.exe calls
+#   CheckTokenMembership against the Administrators SID before proceeding with
+#   service removal and registry tree deletion. Remediation run under a standard
+#   user token may find that Uninstaller.exe silently exits without cleaning up.
+#   Always run the remediation script elevated.
+#
+# ThreatIntelSource:
+#   VT 23/75  — Uninstaller.exe    (1b7e20f0...)
+#   VT 31/75  — AutoUpdater.exe    (8d18e555...)
+#   VT 21/75  — PcAppStoreSrv.exe  (5f60f52a...)
+#   VT 35/75  — PCAppStore.exe     (41c441ab...)
+#   VT 19/75  — Watchdog.exe       (256efadf...)
+# =============================================================================
+
 $MalwareConfig = @{
-
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Metadata
-    # ----------------------------------------------------------------------------
-
-    Metadata = @{
-        Version             = "1.0"
-        LastUpdated         = "2026-03-16"
-        Author              = "sentinelrshuser"
-        ThreatFamily        = "adware.pcappstore"
-        FirstSeen           = "2023-10"
-        Severity            = "CRITICAL"
-        Description         = "PCAppStore (aka VeryFast) is a persistent adware/PUA bundler distributed via trojanized installers (e.g. fake Zoom setup). Drops PcAppStore.exe, AutoUpdater.exe, and Watchdog.exe; establishes three Run key persistence entries; beacons to pcapp.store and repository.pcapp.store for payload updates and telemetry."
-        CVSS                = "8.5"
-        ThreatIntelSource   = "VirusTotal - 25/76 detections (PCAppStore.exe) | 29/77 detections (Setup.exe)"
-
-        # File hashes for reference / hunting
-        KnownHashes = @{
-            # Setup.exe (NSIS dropper)
-            Setup_SHA256    = "01419ec1a4026bb0d74d6f4dfa9f73603664195496f2484bec76654bfab1e69f"
-            Setup_MD5       = "13c6ba024dae687365f2b9158f023fcd"
-            Setup_SHA1      = "2e3d8bfcd5e123fb7389cf1814ee1375d7d2c727"
-            # PcAppStore.exe (main payload)
-            Payload_SHA256  = "6fb23dcb8ae019046b8c09fe164e8d49d8d541c3604122ac640ea5a33ede3b13"
-            Payload_MD5     = "1d7b2e853186125a599f5e2476d28e6b"
-        }
-    }
 
     Name = "PCAppStore"
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Processes
-    # ----------------------------------------------------------------------------
-    # Process names to terminate (without .exe extension)
+    # -------------------------------------------------------------------------
+    # METADATA
+    # -------------------------------------------------------------------------
+    Metadata = @{
+        Version           = "2.1"
+        LastUpdated       = "2026-06-09"
+        Author            = "sentinelrshuser"
+        ThreatFamily      = "adware.pcappstore"
+        FirstSeen         = "2023-10"
+        BuildVersion      = "2046"
+        BuildTimestamp    = "2026-05-29T13:42:11"
+        Severity          = "CRITICAL"
+        Description       = "PCAppStore (aka VeryFast) is a persistent adware/PUA bundler distributed via trojanized installers (e.g. fake Zoom setup). Build 2046 ships five signed components: PCAppStore.exe (main payload with WinGet embed), AutoUpdater.exe (C2-capable updater using raw sockets + SChannel TLS), Watchdog.exe (beacon/telemetry agent that installs a rogue GoProxy root CA), PcAppStoreSrv.exe (Windows service installed under a randomized name), and Uninstaller.exe (self-removal tool). Persists via Run keys, scheduled tasks, and a randomized-name service entry."
+        CVSS              = "8.5"
+        ThreatIntelSource = "VirusTotal — 23/75 (Uninstaller.exe) | 31/75 (AutoUpdater.exe) | 21/75 (PcAppStoreSrv.exe) | 35/75 (PCAppStore.exe) | 19/75 (Watchdog.exe)"
 
+        KnownHashes = @{
+            # ── Uninstaller.exe (fully profiled in build 2046) ──
+            Uninstaller_SHA256     = "1b7e20f01d62526e9f6cdf80918f85633b2ea6ece21c3501ae01c1bd1aa12d6f"
+            Uninstaller_MD5        = "1708ba38468019e4cf3d772f48435f9b"
+            Uninstaller_SHA1       = "891c28327fc645ac106d289977e86bd5beac47c9"
+
+            # ── AutoUpdater.exe / auto_updater.exe (updated hashes for build 2046) ──
+            AutoUpdater_SHA256     = "8d18e55532f0392bc3d931b79173bd38e93422803b2219b165ac3fbbf8f3684d"
+            AutoUpdater_MD5        = "de533edfda147880fa9622b8179fc81e"
+            AutoUpdater_SHA1       = "bc1c1f269cd5f663234d0e0c5a3e0c09c6f13c7b"
+
+            # ── PcAppStoreSrv.exe (NEW in build 2046 — Windows service component) ──
+            PcAppStoreSrv_SHA256   = "5f60f52a6f7b8ea490d28cf96807e9a72d0412879cfd08cf0edb537c82ac4e1a"
+            PcAppStoreSrv_MD5      = "07f8c1e8808c5aebee55a3853c23afb9"
+            PcAppStoreSrv_SHA1     = "1b9cf5528e3bd1975d2c88ddf287fe77f76bbef2"
+
+            # ── PCAppStore.exe / fa_rss.exe (updated hashes for build 2046) ──
+            Payload_SHA256         = "41c441ab5a338856694ad8da8025aa208c062d1d53fac67613a9e82e108a7ee1"
+            Payload_MD5            = "badab3160a7dd64c3d715cd0aec7a4a8"
+            Payload_SHA1           = "6978ff07a7ee97127aec5b9cd388e67ebf8cc708"
+
+            # ── Watchdog.exe (updated hashes for build 2046) ──
+            Watchdog_SHA256        = "256efadfb8398e24527d0607027b775885503be49bee15985a465de40f23547d"
+            Watchdog_MD5           = "e11129b9d8a5e54141b28a5f07aa5c5c"
+            Watchdog_SHA1          = "ba81ab7bf73bb99adc5759dcc9b62c2211bf84ef"
+
+            # ── Legacy build hashes (v1.0 — retain for historical hunting) ──
+            Legacy_Setup_SHA256    = "01419ec1a4026bb0d74d6f4dfa9f73603664195496f2484bec76654bfab1e69f"
+            Legacy_Setup_MD5       = "13c6ba024dae687365f2b9158f023fcd"
+            Legacy_Setup_SHA1      = "2e3d8bfcd5e123fb7389cf1814ee1375d7d2c727"
+            Legacy_Payload_SHA256  = "6fb23dcb8ae019046b8c09fe164e8d49d8d541c3604122ac640ea5a33ede3b13"
+            Legacy_Payload_MD5     = "1d7b2e853186125a599f5e2476d28e6b"
+            Legacy_AutoUpdater_SHA256 = "f7b6ce896be21309977f94f3d999888d03eccd7f2ebd8eab5dd9dd36fa1c9e13"  # v1 hash — moved from DroppedFiles comment
+            Legacy_Uninstaller_SHA256 = "cd9e4dc74e5b764c0dc52fd1b7671d44491a2b0c3f2df8387f316d64d62bb052"  # v1 hash
+        }
+    }
+
+    # -------------------------------------------------------------------------
+    # PROCESSES
+    # Process names to terminate (without .exe extension)
+    # -------------------------------------------------------------------------
     Processes = @(
         "PcAppStore",
         "PCAppStore",
         "AutoUpdater",
-        "Watchdog"
+        "Watchdog",
+        "PcAppStoreSrv",      # NEW: Windows service host process
+        "PcAppStoreSRV"       # NEW: alternate casing observed in sandbox
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Services
-    # ----------------------------------------------------------------------------
-    # Service names to stop and remove
-    # No dedicated services observed in sandbox — persistence is via Run keys and scheduled tasks.
-
+    # -------------------------------------------------------------------------
+    # SERVICES
+    # Service names to stop and remove.
+    #
+    # IMPORTANT — RANDOMIZED SERVICE NAME:
+    #   PcAppStoreSrv.exe registers under a randomized display name (e.g.
+    #   "YcAai" was observed in sandbox). Do NOT rely on service name matching
+    #   alone. Remediation scripts must also scan by binpath:
+    #     Get-WmiObject Win32_Service |
+    #       Where-Object { $_.PathName -like '*PcAppStore*' }
+    # -------------------------------------------------------------------------
     Services = @(
         "PcAppStore",
         "PCAppStore",
         "AutoUpdater",
-        "Watchdog"
+        "Watchdog",
+        "PcAppStoreSRV"       # NEW: canonical service name for the SRV component
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Certificates
-    # ----------------------------------------------------------------------------
-
+    # -------------------------------------------------------------------------
+    # CERTIFICATES
+    # -------------------------------------------------------------------------
     Certificates = @{
-        # Known malicious certificate thumbprints (PRIORITY 1 - REMOVE)
-        # pcapp.store TLS cert observed in sandbox C2 traffic (both VT reports)
+
+        # Priority 1 — REMOVE: known malicious certificate thumbprints
         MaliciousThumbprints = @(
-            "8c50a7558a5b98449b3eff91ad9a103e86453b73"   # CN=pcapp.store | Issuer: RapidSSL TLS RSA CA G1 / DigiCert
+            "8c50a7558a5b98449b3eff91ad9a103e86453b73",   # CN=pcapp.store | RapidSSL TLS RSA CA G1 (v1 cert)
+            "1d2f32b0eb33aebac28af00bfc90292a386790e8",   # NEW: CN=pcapp.store | RapidSSL TLS RSA CA G1 (build 2046 TLS cert observed in PCAppStore.exe C2 traffic)
+            "0174e68c97ddf1e0eeea415ea336a163d2b61afd"    # NEW: GoProxy self-signed root CA installed by Watchdog.exe into HKCU\SystemCertificates\Root — enables HTTPS interception
         )
 
-        # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
+        # Priority 2 — REMOVE: known malicious certificate serial numbers
         MaliciousSerialNumbers = @(
-            "0b37f8d349bdf7636b954265f8e45e6a"           # pcapp.store cert serial
+            "0b37f8d349bdf7636b954265f8e45e6a",           # pcapp.store cert serial (v1)
+            "026627ed3fdf4f3928a437f906864752"            # NEW: pcapp.store cert serial (build 2046)
         )
 
-        # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
+        # Priority 3 — ANALYZE: suspicious keywords in Subject/Issuer
         SuspiciousKeywords = @(
             "pcapp.store",
             "Fast Corporation",
-            "PC App Store"
+            "PC App Store",
+            "goproxy.github.io"                           # NEW: GoProxy root CA issuer string pattern
         )
 
-        # Protected keywords - REPORT ONLY, DO NOT DELETE
+        # Protected keywords — REPORT ONLY, do not delete
         ProtectedKeywords = @(
             "Microsoft",
             "Windows",
@@ -120,7 +243,8 @@ $MalwareConfig = @{
             "Thawte",
             "GeoTrust",
             "Comodo",
-            "GlobalSign"
+            "GlobalSign",
+            "Amazon"                                       # Added: Amazon Trust Services (used by Watchdog CDN)
         )
 
         # Certificate stores to scan (ordered by risk level)
@@ -133,24 +257,29 @@ $MalwareConfig = @{
             @{Location = "CurrentUser";  Store = "CA";               Risk = "MEDIUM"}
         )
 
-        RecentlyInstalledDays    = 90
-        SuspiciousValidityYears  = 20
+        # NEW: Non-standard certificate store paths written directly to registry
+        # by Watchdog.exe — must be scanned per-user SID in addition to Stores above
+        RogueRootCARegistryPaths = @(
+            # Pattern: HKCU\Software\Microsoft\SystemCertificates\Root\Certificates\<THUMBPRINT>
+            # Known thumbprint installed by Watchdog build 2046:
+            "Software\Microsoft\SystemCertificates\Root\Certificates\0174E68C97DDF1E0EEEA415EA336A163D2B61AFD"
+        )
+
+        RecentlyInstalledDays   = 90
+        SuspiciousValidityYears = 20
     }
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Scheduled Tasks
-    # ----------------------------------------------------------------------------
-    # Scheduled task patterns
-
+    # -------------------------------------------------------------------------
+    # SCHEDULED TASKS
+    # -------------------------------------------------------------------------
     TaskPatterns = @(
         "PCAppStoreAutoUpdater"
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Run Keys
-    # ----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # RUN KEY PATTERNS
     # Registry value names to remove from HKCU\...\Run
-
+    # -------------------------------------------------------------------------
     RunKeyPatterns = @(
         "PCAppStore",
         "PcAppStoreUpdater",
@@ -162,30 +291,31 @@ $MalwareConfig = @{
         "PCAppStore"
     )
 
-    # User-specific directory paths (exact matches, parameterised by $user at runtime)
+    # User-specific directory paths (parameterized by $user at runtime)
     UserPaths = @(
         "C:\Users\$user\PCAppStore",
         "C:\Users\$user\AppData\Roaming\PCAppStore",
         "C:\Users\$user\AppData\Local\pc_app_store"
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Files and Folders
-    # ----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # FILES AND FOLDERS
+    # -------------------------------------------------------------------------
 
-    # Download folder wildcard patterns (trojanised installer names observed in the wild)
+    # Download folder wildcard patterns (trojanized installer names)
     DownloadPatterns = @(
         "Zoom-Setup-PCAppStore*.exe",
-        "Setup.exe"                         # generic NSIS dropper name; correlate with SHA256 before removing
+        "Setup.exe"                    # Generic NSIS dropper — correlate with SHA256 before removing
     )
 
-    # Files dropped directly into user profile root by the installer
+    # Files dropped into user profile root by the installer
     DroppedFiles = @(
         # Relative to C:\Users\<user>\PCAppStore\
-        "PcAppStore.exe",                   # SHA256: 6fb23dcb8ae019046b8c09fe164e8d49d8d541c3604122ac640ea5a33ede3b13
-        "AutoUpdater.exe",                  # SHA256: f7b6ce896be21309977f94f3d999888d03eccd7f2ebd8eab5dd9dd36fa1c9e13
-        "Watchdog.exe",
-        "Uninstaller.exe",                  # SHA256: cd9e4dc74e5b764c0dc52fd1b7671d44491a2b0c3f2df8387f316d64d62bb052
+        "PcAppStore.exe",              # SHA256: 41c441ab5a338856694ad8da8025aa208c062d1d53fac67613a9e82e108a7ee1
+        "PcAppStoreSrv.exe",           # SHA256: 5f60f52a6f7b8ea490d28cf96807e9a72d0412879cfd08cf0edb537c82ac4e1a
+        "AutoUpdater.exe",             # SHA256: 8d18e55532f0392bc3d931b79173bd38e93422803b2219b165ac3fbbf8f3684d
+        "Watchdog.exe",                # SHA256: 256efadfb8398e24527d0607027b775885503be49bee15985a465de40f23547d
+        "Uninstaller.exe",             # SHA256: 1b7e20f01d62526e9f6cdf80918f85633b2ea6ece21c3501ae01c1bd1aa12d6f
         "ReadMe.txt"
     )
 
@@ -194,76 +324,181 @@ $MalwareConfig = @{
         "C:\Windows\System32\Tasks\PCAppStoreAutoUpdater"
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Registry Keys
-    # ----------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # RUNTIME ARTIFACTS (NEW in v2.0)
+    # Files written at runtime that are not part of the installed payload but
+    # indicate active or recent execution of the malware components.
+    # -------------------------------------------------------------------------
+    RuntimeArtifacts = @(
+        "C:\servicereg.log",           # Written by PcAppStoreSrv.exe during service registration via sc.exe
+        "C:\servicestart.log"          # Written by PcAppStoreSrv.exe during service start via sc.exe
+    )
+
+    # -------------------------------------------------------------------------
+    # REGISTRY KEYS
+    # -------------------------------------------------------------------------
 
     # HKLM registry keys to remove
     RegistryHKLM = @(
         "SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\TREE\PCAppStoreAutoUpdater",
-        "SOFTWARE\Classes\AppID\PcAppStore.exe"
+        "SOFTWARE\Classes\AppID\PcAppStore.exe",
+        "SOFTWARE\WOW6432Node\PCAppStore",           # NEW: 32-bit application registration written by build 2046
+        "Software\Microsoft\DownloadManager"         # NEW: set by PCAppStore.exe (WinGet/deployment integration)
     )
 
-    # HKU per-user registry key patterns to remove (applied against each SID hive)
+    # HKU per-user registry key patterns (applied against each SID hive)
     RegistryHKUPatterns = @(
         "Software\PCAppStore",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\PCAppStore",
         "Software\Microsoft\Windows\CurrentVersion\Run\PCAppStore",
         "Software\Microsoft\Windows\CurrentVersion\Run\PcAppStoreUpdater",
-        "Software\Microsoft\Windows\CurrentVersion\Run\Watchdog"
+        "Software\Microsoft\Windows\CurrentVersion\Run\Watchdog",
+        # NEW: GoProxy rogue root CA installed directly into user cert registry store
+        "Software\Microsoft\SystemCertificates\Root\Certificates\0174E68C97DDF1E0EEEA415EA336A163D2B61AFD"
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Browser Entries
-    # ----------------------------------------------------------------------------
-
-    # Start Menu shortcuts created by the installer
+    # -------------------------------------------------------------------------
+    # BROWSER / SHELL ENTRIES
+    # -------------------------------------------------------------------------
     BrowserStartMenuPatterns = @(
-        "PC App Store.lnk"                  # Path: C:\Users\<user>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PC App Store.lnk
+        "PC App Store.lnk"             # Path: C:\Users\<user>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\PC App Store.lnk
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Usage Tracking
-    # ----------------------------------------------------------------------------
-
+    # -------------------------------------------------------------------------
+    # USAGE TRACKING
     # ApplicationAssociationToasts / open-with registry value patterns
+    # -------------------------------------------------------------------------
     ApplicationAssociationPatterns = @(
         "PCAppStore",
         "PcAppStore",
         "pc_app_store"
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - File Association Tracking
-    # ----------------------------------------------------------------------------
-
+    # -------------------------------------------------------------------------
+    # FILE ASSOCIATION TRACKING
     # AppBadgeUpdated / AppLaunch feature-usage key patterns
+    # -------------------------------------------------------------------------
     FeatureUsagePatterns = @(
         "PCAppStore",
         "PcAppStore",
         "AutoUpdater"
     )
 
-    # ----------------------------------------------------------------------------
-    # NETWORK INDICATORS (reference / firewall block list)
-    # ----------------------------------------------------------------------------
-    # Not consumed by the remediation script directly, but useful for EDR/firewall rules.
+    # -------------------------------------------------------------------------
+    # MUTEXES (NEW in v2.0, updated v2.1)
+    # Named mutex patterns created by malware components at runtime.
+    # Presence of these mutexes indicates active execution.
+    # -------------------------------------------------------------------------
+    Mutexes = @(
+        "\BaseNamedObjects\Global\PcAppSharedMemoryMutex",  # Created by PcAppStoreSrv.exe — indicates service is running
+        "\Sessions\1\BaseNamedObjects\PCAppStoreMutex",     # Created by Uninstaller.exe and PCAppStore.exe — instance guard/single-run check
+        "PCAppStoreMutex"                                   # Short form (session-relative); may appear without session prefix depending on execution context
+    )
 
+    # -------------------------------------------------------------------------
+    # COMPONENT CAPABILITIES (NEW in v2.1)
+    # Behavioural capability summary per component — consumed by the remediation
+    # script to inform operation ordering and privilege requirements.
+    # -------------------------------------------------------------------------
+    ComponentCapabilities = @{
+
+        # Uninstaller.exe — self-removal binary; also capable of full cleanup
+        # IMPORTANT: checks admin token before proceeding; exits silently if not elevated
+        Uninstaller = @{
+            RequiresAdmin         = $true          # CheckTokenMembership(Administrators) — exits if not admin
+            StopsServices         = $true          # ControlService(SERVICE_CONTROL_STOP) via OpenSCManagerW
+            DeletesServices       = $true          # DeleteService() via advapi32
+            DeletesRegistryKeys   = $true          # RegDeleteKeyExW + RegDeleteTreeW
+            DeletesRegistryValues = $true          # RegDeleteValueW
+            SpawnsChildProcesses  = $true          # CreateProcessW + ShellExecuteExW
+            PDB                   = "C:\Build\Build_2046_D20260529T134211\fa_rss\x64\ReleaseUninstaller\Uninstaller.pdb"
+        }
+
+        # AutoUpdater.exe — update delivery with full C2 capability
+        # Most capable network component: raw sockets + WinHTTP + WinINET + own TLS stack
+        AutoUpdater = @{
+            RawSocketC2           = $true          # WS2_32 send/recv — classified B0030.001/B0030.002 by CAPA
+            WinHTTP               = $true          # WinHttpOpen, WinHttpSendRequest, WinHttpReadData
+            WinINET               = $true          # InternetOpenW, HttpSendRequestW, InternetReadFile
+            OwnTLSStack           = $true          # Secur32 AcquireCredentialsHandleW + EncryptMessage + DecryptMessage via SChannel/CredSSP
+            COMActivation         = $true          # CoCreateInstance, CoInitializeEx — update delivery mechanism
+            UUIDGeneration        = $true          # UuidCreate/UuidToStringW (RPCRT4) — installation fingerprinting
+            PDB                   = "C:\Build\Build_2046_D20260529T134211\fa_rss\Release\AutoUpdater.pdb"
+        }
+    }
+
+    # -------------------------------------------------------------------------
+    # NETWORK INDICATORS
+    # Reference / firewall block list.
+    # Not consumed by the remediation script directly — use for EDR/firewall rules.
+    # -------------------------------------------------------------------------
     NetworkIOCs = @{
+
         Domains = @(
             "pcapp.store",
             "repository.pcapp.store",
-            "d74queuslupub.cloudfront.net"
+            "d74queuslupub.cloudfront.net"     # Watchdog beacon CDN endpoint
         )
+
         IPs = @(
-            "64.176.203.93",   # pcapp.store (VT report 1)
-            "45.32.1.23",      # pcapp.store (VT report 1)
-            "159.203.177.96",  # pcapp.store (VT report 1)
-            "104.248.126.225"  # pcapp.store (VT report 2)
+            # pcapp.store — build 2046 observed pool (CAPE sandbox, June 2026)
+            "64.176.203.93",           # pcapp.store (confirmed v1 + v2)
+            "45.32.1.23",              # pcapp.store (confirmed v1 + v2)
+            "159.203.177.96",          # pcapp.store (confirmed v1 + v2)
+            "104.248.126.225",         # pcapp.store (confirmed v1 + v2)
+            "207.246.91.177",          # NEW: pcapp.store (build 2046)
+            "159.223.126.41",          # NEW: pcapp.store (build 2046)
+            "167.99.235.203",          # NEW: pcapp.store (build 2046)
+            "45.76.12.98",             # NEW: pcapp.store (build 2046)
+            "159.223.101.159",         # NEW: pcapp.store (build 2046)
+            "209.222.21.115",          # NEW: pcapp.store (build 2046)
+            # d74queuslupub.cloudfront.net — Watchdog beacon IPs (CloudFront; may rotate)
+            "13.225.61.74",            # NEW: Watchdog CDN (CAPE sandbox)
+            "13.225.61.78",            # NEW: Watchdog CDN (CAPE sandbox)
+            "13.225.61.113",           # NEW: Watchdog CDN (CAPE sandbox)
+            "13.225.61.114",           # NEW: Watchdog CDN (CAPE sandbox)
+            "3.162.125.4",             # NEW: Watchdog CDN (Jujubox sandbox)
+            "3.162.125.45",            # NEW: Watchdog CDN (Jujubox sandbox)
+            "3.162.125.67",            # NEW: Watchdog CDN (Jujubox sandbox)
+            "3.162.125.82",            # NEW: Watchdog CDN (Jujubox sandbox)
+            "3.162.163.21",            # NEW: Watchdog CDN (Zenbox sandbox)
+            "3.162.163.23",            # NEW: Watchdog CDN (Zenbox sandbox)
+            "3.162.163.29",            # NEW: Watchdog CDN (Zenbox sandbox)
+            "3.162.163.129"            # NEW: Watchdog CDN (Zenbox sandbox)
         )
+
         C2Paths = @(
-            "/pixel.gif",      # beacon observed in memory dump strings
-            "/installing.php"  # post-install callback
+            "/pixel.gif",              # PCAppStore.exe beacon on pcapp.store (init/telemetry)
+            "/installing.php",         # PCAppStore.exe post-install callback on pcapp.store
+            "/p.gif"                   # NEW: Watchdog.exe beacon on d74queuslupub.cloudfront.net
+        )
+
+        # NEW: C2 beacon query parameters observed in Watchdog telemetry.
+        # Useful for network-layer detection (deep packet inspection / proxy logs).
+        WatchdogBeaconParams = @(
+            "evt_src=watch_dog",
+            "evt_action=signal_event",
+            "isPCAppRunning",
+            "pcAppInAutostart",
+            "pcAppInAutoupdate",
+            "AutoUpdaterExeExists",
+            "PcAppStoreExeExists",
+            "PcAppStoreSRVExeExists",
+            "UninstallerExeExists",
+            "startupFolderLnkExists"
+        )
+
+        # NEW: PCAppStore.exe integrity-error beacon paths observed in build 2046.
+        # Indicate the binary failed its own self-integrity check after rename/copy.
+        PCAppStoreBeaconPaths = @(
+            "/pixel.gif?guid=*&evt_action=init*",
+            "/pixel.gif?guid=*&evt_action=integrity_error*",
+            "/pixel.gif?guid=*&evt_action=integrity_error_result*"
+        )
+
+        # TLS JA3 fingerprints observed across sandboxes — useful for proxy/IDS rules
+        JA3Fingerprints = @(
+            "a0e9f5d64349fb13191bc781f81f42e1"   # Observed in PCAppStore.exe and Watchdog.exe TLS sessions
         )
     }
 }
