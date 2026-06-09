@@ -133,7 +133,7 @@ $MalwareConfig = @{
         Severity          = "CRITICAL"
         Description       = "PCAppStore (aka VeryFast) is a persistent adware/PUA bundler distributed via trojanized installers (e.g. fake Zoom setup). Build 2046 ships five signed components: PCAppStore.exe (main payload with WinGet embed), AutoUpdater.exe (C2-capable updater using raw sockets + SChannel TLS), Watchdog.exe (beacon/telemetry agent that installs a rogue GoProxy root CA), PcAppStoreSrv.exe (Windows service installed under a randomized name), and Uninstaller.exe (self-removal tool). Persists via Run keys, scheduled tasks, and a randomized-name service entry."
         CVSS              = "8.5"
-        ThreatIntelSource = "VirusTotal — 23/75 (Uninstaller.exe) | 31/75 (AutoUpdater.exe) | 21/75 (PcAppStoreSrv.exe) | 35/75 (PCAppStore.exe) | 19/75 (Watchdog.exe)"
+        ThreatIntelSource = "VirusTotal - 23/75 (Uninstaller.exe); 31/75 (AutoUpdater.exe); 21/75 (PcAppStoreSrv.exe); 35/75 (PCAppStore.exe); 19/75 (Watchdog.exe)"
 
         KnownHashes = @{
             # ── Uninstaller.exe (fully profiled in build 2046) ──
