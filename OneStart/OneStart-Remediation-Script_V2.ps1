@@ -123,7 +123,9 @@ $MalwareConfig = @{
         # NEW - Additional variants from analysis
         "RecipeLister",
         "TamperedChef",
-        "ManualFinder"
+        "ManualFinder",
+        "AceLauncher",
+        "AceLauncherUpdater"
     )
     
     # ----------------------------------------------------------------------------
@@ -148,7 +150,9 @@ $MalwareConfig = @{
         "TamperedChef",
         "TamperedChefService",
         "ManualFinder",
-        "ManualFinderService"
+        "ManualFinderService",
+        "AceLauncher",
+        "AceLauncherUpdater"
     )
     
     # ----------------------------------------------------------------------------
@@ -166,7 +170,9 @@ $MalwareConfig = @{
             "B515DF656EE4C27ED1F9FEBC2CE6F9756E6F023B",   # NEW - Apollo Technologies Inc. (REVOKED)
             "2D4129109DBF921DB0BC48D41DA32DA0FF1BF024",   # Pixel Catalyst Media LLC (REVOKED)
             "17F77710C888E30917F71F7909086BCC2D131F61",  # NEW - Byte Media Sdn. Bhd. (REVOKED) - EpiBrowser
-            "3EBBB02A48F7DB26B708F5E535E8DCE8EFF2CAEA"   # NEW - App Interplace LLC (REVOKED) - JustAskJacky
+            "3EBBB02A48F7DB26B708F5E535E8DCE8EFF2CAEA",   # NEW - App Interplace LLC (REVOKED) - JustAskJacky
+            "2867D887B47031BADE31204951D86BC856D8A783",  # Sunstream Labs (Capital Intellect Inc.)
+            "CF9BD0E03985B8F917E43A47145DE57F7691BED5"  # Sunstream Labs (Capital Intellect Inc.)
         )
         
         # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
@@ -184,7 +190,11 @@ $MalwareConfig = @{
             "71F4DED233C732913D3EF342",                            # NEW - Byte Media Sdn. Bhd. (EpiBrowser)
             "71 F4 DE D2 33 C7 32 91 3D 3E F3 42",                 # NEW - Byte Media Sdn. Bhd. (EpiBrowser, formatted)
             "573FD429CFC430E46C5797AC5B84BCBD",                    # NEW - App Interplace LLC (JustAskJacky)
-            "57 3F D4 29 CF C4 30 E4 6C 57 97 AC 5B 84 BC BD"      # NEW - App Interplace LLC (JustAskJacky, formatted)
+            "57 3F D4 29 CF C4 30 E4 6C 57 97 AC 5B 84 BC BD",     # NEW - App Interplace LLC (JustAskJacky, formatted)
+            "0A996159295E70CE0A7E393DD7B94B55",                    # Sunstream Labs (Capital Intellect Inc.)
+            "0A 99 61 59 29 5E 70 CE 0A 7E 39 3D D7 B9 4B 55",     # Sunstream Labs (Capital Intellect Inc.)
+            "059F42894280696C40C8487BB05D064C",                    # Sunstream Labs (Capital Intellect Inc.)
+            "05 9F 42 89 42 80 69 6C 40 C8 48 7B B0 5D 06 4C"      # Sunstream Labs (Capital Intellect Inc.)
         )
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
@@ -221,7 +231,9 @@ $MalwareConfig = @{
             "JustAskJacky",
             "Manual Finder",
             "Recipe Lister",
-            "Tampered Chef"
+            "Tampered Chef",
+            "Sunstream Labs",
+            "Capital Intellect"
         )
         
         # Protected keywords - REPORT ONLY, DO NOT DELETE
@@ -278,7 +290,10 @@ $MalwareConfig = @{
         "fb2a691d-bf5c-4660-abd3-bca584c85782",  # JustAskJacky specific GUID
         "ManualFinder*",
         "RecipeLister*",
-        "TamperedChef*"
+        "TamperedChef*",
+        "AceLauncher*",
+        "AceLauncherDock*",
+        "AceLauncherAutoUpdate*"
     )
     
     # ----------------------------------------------------------------------------
@@ -311,7 +326,10 @@ $MalwareConfig = @{
         "JustAskJacky*",
         "ManualFinder*",
         "RecipeLister*",
-        "TamperedChef*"
+        "TamperedChef*",
+        "AceLauncher*",
+        "AceLauncherDock*",
+        "AceLauncherAutoUpdate*"
     )
     
     # Registered applications patterns
@@ -333,7 +351,10 @@ $MalwareConfig = @{
         "JustAskJacky*",
         "ManualFinder*",
         "RecipeLister*",
-        "TamperedChef*"
+        "TamperedChef*",
+        "AceLauncher*",
+        "AceLauncherDock*",
+        "AceLauncherAutoUpdate*"
     )
     
     # User-specific paths (exact matches only)
@@ -437,7 +458,12 @@ $MalwareConfig = @{
         "C:\Users\{USER}\AppData\Local\TamperedChef",
         "C:\Users\{USER}\AppData\Roaming\TamperedChef",
         "C:\Users\{USER}\AppData\Local\Programs\TamperedChef",
-        "C:\Users\{USER}\Desktop\TamperedChef.lnk"
+        "C:\Users\{USER}\Desktop\TamperedChef.lnk",
+        "%LOCALAPPDATA%\AceLauncher",
+        "%LOCALAPPDATA%\AceLauncher\Application\AceLauncher.exe",
+        "%LOCALAPPDATA%\AceLauncherDock",
+        "%LOCALAPPDATA%\AceLauncherDock\current\AceLauncher.exe",
+        "%LOCALAPPDATA%\AceLauncherAutoUpdate"
     )
     
     # ----------------------------------------------------------------------------
@@ -545,7 +571,13 @@ $MalwareConfig = @{
         "TamperedChef*.exe",
         "TamperedChef*.msi",
         "*TamperedChef*.exe",
-        "*TamperedChef*.msi"
+        "*TamperedChef*.msi",
+        "AceLauncher.exe",
+        "AceLauncher.exe.config",
+        "AceLauncher.INI",
+        "AceLauncher.pdb",
+        "AceLauncherUpdater.exe",
+        "AceLauncherDock-*-full.nupkg"
     )
     
     # System-level paths
@@ -705,7 +737,9 @@ $MalwareConfig = @{
         "JustAskJacky*",
         "ManualFinder*",
         "RecipeLister*",
-        "TamperedChef*"
+        "TamperedChef*",
+        "oobincnjpkooeennnochfgblilnhldfg",
+        "AceLauncher"
     )
 
     # ----------------------------------------------------------------------------
@@ -731,7 +765,10 @@ $MalwareConfig = @{
         "JustAskJacky*",
         "ManualFinder*",
         "RecipeLister*",
-        "TamperedChef*"
+        "TamperedChef*",
+        "AceLauncher*",
+        "AceLauncherDock*",
+        "AceLauncherAutoUpdate*"
     )
 
     # ----------------------------------------------------------------------------
@@ -755,7 +792,10 @@ $MalwareConfig = @{
         "JustAskJacky*",
         "ManualFinder*",
         "RecipeLister*",
-        "TamperedChef*"
+        "TamperedChef*",
+        "AceLauncher*",
+        "AceLauncherDock*",
+        "AceLauncherAutoUpdate*"
     )
 }
 
