@@ -299,9 +299,16 @@ $MalwareConfig = @{
         "TamperedChef*",
         "AceLauncher*",
         "AceLauncherDock*",
-        "AceLauncherAutoUpdate*"
+        "AceLauncherAutoUpdate*",
+        # Explicit spaced task names observed in SentinelOne report (Threat ID
+        # 2516201389313006709). "AceLauncher*" already matches these via -like;
+        # listed explicitly for documentation / defense-in-depth.
+        "AceLauncher Browser",
+        "AceLauncher Statistics",
+        "AceLauncher Wakeup",
+        "AceLauncher Autoupdate"
     )
-    
+
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Run Keys
     # ----------------------------------------------------------------------------
