@@ -566,6 +566,8 @@ $MalwareConfig = @{
         "C:\Program Files (x86)\EPISoftware",
         "C:\Program Files\EpiBrowser",
         "C:\Program Files (x86)\EpiBrowser",
+        # ScreenConnect installer temp folders
+        "C:\Windows\SystemTemp\ScreenConnect\*",
         "C:\Windows\Installer\5f9617.msi",  # Malicious MSI in installer cache
         "C:\Windows\Installer\*OneStart*.msi",
         "C:\Windows\Installer\*EpiBrowser*.msi",
@@ -579,6 +581,7 @@ $MalwareConfig = @{
         "C:\Program Files (x86)\RecipeLister",
         "C:\Program Files\TamperedChef",
         "C:\Program Files (x86)\TamperedChef"
+        "C:\Windows\SystemTemp\ScreenConnect"
     )
     
     # ----------------------------------------------------------------------------
