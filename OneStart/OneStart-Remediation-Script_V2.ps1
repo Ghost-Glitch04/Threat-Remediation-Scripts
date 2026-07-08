@@ -125,9 +125,15 @@ $MalwareConfig = @{
         "TamperedChef",
         "ManualFinder",
         "AceLauncher",
-        "AceLauncherUpdater"
+        "AceLauncherUpdater",
+        "AceLauncherDock"
+        # NOTE: The Velopack "Update.exe" updater is NOT listed here because that
+        # generic name also matches legitimate apps (Discord, GitHub Desktop, Teams,
+        # other Squirrel/Velopack apps). It is terminated by the path-scoped
+        # Stop-VelopackUpdater helper instead (only kills Update.exe running from an
+        # AceLauncher* folder).
     )
-    
+
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Services
     # ----------------------------------------------------------------------------
@@ -1804,6 +1810,101 @@ function Stop-MalwareProcess {
     Write-Log "  Not Found: $($RemediationResults.Summary.ProcessesNotFound)" -Level INFO
     Write-Log "========================================" -Level INFO
 }
+
+# ============================================================================ #
+#  PRIMARY FUNCTIONS - PROCESS TERMINATION - Stop-VelopackUpdater
+# ============================================================================ #
+
+function Stop-VelopackUpdater {
+    <#
+    .SYNOPSIS
+    Terminates the Velopack updater (Update.exe) ONLY when it runs from a matching folder.
+    .DESCRIPTION
+    The Velopack framework ships a generically-named "Update.exe" that typically holds
+    a lock on the VelopackTemp directory. Killing every Update.exe by name would also
+    terminate unrelated apps (Discord, GitHub Desktop, Teams, other Squirrel/Velopack
+    apps). This helper resolves each Update.exe's executable path and only stops the
+    ones whose path matches -PathPattern (e.g. "*AceLauncher*"), so there is no
+    collateral damage. Results are tracked in the same $RemediationResults buckets as
+    Stop-MalwareProcess.
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$PathPattern
+    )
+
+    Write-Log "----------------------------------------" -Level INFO
+    Write-Log "Path-scoped updater kill: Update.exe under '$PathPattern'" -Level INFO
+
+    $RemediationResults.Summary.ProcessesChecked++
+
+    # Resolve Update.exe instances and their on-disk path. Prefer Win32_Process
+    # (ExecutablePath is readable even for other users' processes when elevated);
+    # fall back to Get-Process .Path.
+    $candidates = @(Get-CimInstance Win32_Process -Filter "Name = 'Update.exe'" -ErrorAction SilentlyContinue)
+
+    if (-not $candidates) {
+        Write-Log "  [NOT FOUND] No Update.exe processes running" -Level INFO
+        $record = New-ProcessRecord -ProcessName "Update.exe ($PathPattern)" -Status $StatusLevels.NotFound
+        $RemediationResults.Processes.NotFound += $record
+        $RemediationResults.Summary.ProcessesNotFound++
+        return
+    }
+
+    $matched = @($candidates | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like $PathPattern })
+
+    if (-not $matched) {
+        Write-Log "  [SKIPPED] $($candidates.Count) Update.exe running, none under '$PathPattern' (left untouched)" -Level INFO
+        $record = New-ProcessRecord -ProcessName "Update.exe ($PathPattern)" -Status $StatusLevels.NotFound
+        $RemediationResults.Processes.NotFound += $record
+        $RemediationResults.Summary.ProcessesNotFound++
+        return
+    }
+
+    $pidList = @($matched.ProcessId)
+    $RemediationResults.Summary.ProcessesFound++
+    Write-Log "  [FOUND] $($matched.Count) matching Update.exe | PIDs: $($pidList -join ', ')" -Level WARNING
+    foreach ($m in $matched) {
+        Write-Log "    -> PID $($m.ProcessId): $($m.ExecutablePath)" -Level WARNING
+    }
+
+    try {
+        $procObjects = @()
+        foreach ($procId in $pidList) {
+            $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+            if ($p) { $procObjects += $p }
+        }
+        if ($procObjects) { $procObjects | Stop-Process -Force -ErrorAction Stop }
+        Start-Sleep -Milliseconds 500
+
+        $stillRunning = @(Get-CimInstance Win32_Process -Filter "Name = 'Update.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $pidList -contains $_.ProcessId })
+
+        if (-not $stillRunning) {
+            Write-Log "  [SUCCESS] Terminated Update.exe (PIDs: $($pidList -join ', '))" -Level SUCCESS
+            $record = New-ProcessRecord -ProcessName "Update.exe ($PathPattern)" -Status $StatusLevels.Success `
+                -PIDs $pidList -ProcessObjects $procObjects
+            $RemediationResults.Processes.Terminated += $record
+            $RemediationResults.Summary.ProcessesTerminated++
+        } else {
+            $survivingPIDs = @($stillRunning.ProcessId)
+            Write-Log "  [FAILED] Still running Update.exe (PIDs: $($survivingPIDs -join ', '))" -Level ERROR
+            $record = New-ProcessRecord -ProcessName "Update.exe ($PathPattern)" -Status $StatusLevels.Failed `
+                -PIDs $survivingPIDs -ErrorMessage "Update.exe survived termination attempt"
+            $RemediationResults.Processes.Failed += $record
+            $RemediationResults.Summary.ProcessesFailed++
+        }
+    } catch {
+        $errorMsg = $_.Exception.Message
+        Write-Log "  [ERROR] Exception terminating Update.exe - $errorMsg" -Level ERROR
+        $record = New-ProcessRecord -ProcessName "Update.exe ($PathPattern)" -Status $StatusLevels.Error `
+            -PIDs $pidList -ErrorMessage $errorMsg
+        $RemediationResults.Processes.Errored += $record
+        $RemediationResults.Summary.ProcessesErrored++
+        $RemediationResults.CriticalErrors += "Process: Update.exe ($PathPattern) - $errorMsg"
+    }
+}
+
 # ============================================================================ #
 #  PRIMARY FUNCTIONS - SERVICE REMEDIATION
 # ============================================================================ #
@@ -3273,10 +3374,18 @@ function Remove-MalwareFiles {
         foreach ($pathTemplate in $UserPaths) {
             # Increment paths checked counter
             $RemediationResults.Summary.PathsChecked++
-            
+
+            # Normalize per-user environment-variable tokens to the {USER} convention
+            # so they resolve for EACH profile (not just the account running the script).
+            # e.g. "%LOCALAPPDATA%\AceLauncherDock" -> "C:\Users\{USER}\AppData\Local\AceLauncherDock"
+            $normalizedTemplate = $pathTemplate
+            $normalizedTemplate = $normalizedTemplate -replace '(?i)%LOCALAPPDATA%', 'C:\Users\{USER}\AppData\Local'
+            $normalizedTemplate = $normalizedTemplate -replace '(?i)%APPDATA%',      'C:\Users\{USER}\AppData\Roaming'
+            $normalizedTemplate = $normalizedTemplate -replace '(?i)%USERPROFILE%',  'C:\Users\{USER}'
+
             # Replace {USER} placeholder with actual username
-            $actualPath = $pathTemplate -replace '\{USER\}', $user
-            
+            $actualPath = $normalizedTemplate -replace '\{USER\}', $user
+
             # Attempt to remove the path
             $result = Remove-PathItem -Path $actualPath
             
@@ -4362,7 +4471,12 @@ Write-Log "--------------------------------------------" -Level INFO
 
 try {
     Stop-MalwareProcess -ProcessNames $MalwareConfig.Processes
-    
+
+    # Path-scoped kill for the generically-named Velopack updater (Update.exe).
+    # Only terminates instances whose executable lives under an AceLauncher* folder,
+    # so legitimate Update.exe processes (Discord, GitHub Desktop, etc.) are untouched.
+    Stop-VelopackUpdater -PathPattern '*AceLauncher*'
+
     $moduleEndTime = Get-Date
     Write-ModuleTiming -ModuleName "Processes" -StartTime $moduleStartTime -EndTime $moduleEndTime
     
