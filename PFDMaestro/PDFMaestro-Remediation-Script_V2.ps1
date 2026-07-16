@@ -56,6 +56,28 @@
 #
 # ============================================================================
 
+#Requires -RunAsAdministrator
+
+# ----------------------------------------------------------------------------
+# LOGGING CONFIGURATION
+# ----------------------------------------------------------------------------
+$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$logFile = Join-Path $env:TEMP "MalwareRemediation_$timestamp.log"
+
+# Verify log file can be created
+try {
+    "Script initialization: $(Get-Date)" | Out-File -FilePath $logFile -ErrorAction Stop
+    Write-Output "[OK] Log file initialized: $logFile"
+} catch {
+    Write-Output "[CRITICAL ERROR] Cannot create log file: $($_.Exception.Message)"
+    Write-Output "[CRITICAL ERROR] Path attempted: $logFile"
+    Write-Output "[CRITICAL ERROR] Script cannot continue without logging capability"
+    exit 1
+}
+
+# ----------------------------------------------------------------------------
+# MALWARE CONFIGURATION
+# ----------------------------------------------------------------------------
 $MalwareConfig = @{
 
     # ----------------------------------------------------------------------------
