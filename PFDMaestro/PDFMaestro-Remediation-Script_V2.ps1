@@ -115,44 +115,7 @@ try {
 
 $MalwareConfig = @{
 
-    # ------------------------------------------------------------------------
-    # Metadata
-    # ------------------------------------------------------------------------
-    Metadata = @{
-        Version          = "1.3.0"
-        LastUpdated      = "2026-07-16"
-        Author           = "Ghost"
-        ThreatFamily     = "PDFMaestro / Adware.Artiligna / SoftLabsAI"
-        FirstSeen        = "2026-04-29"   # SRC: VT > first_submission_date (1777455432)
-        FirstSeenITW     = "2026-05-21"   # SRC: VT > first_seen_itw_date (1779382947)
-        Severity         = "HIGH"
-        Description      = "Signed .NET (v4.0.30319) adware dropper masquerading as a PDF " +
-                           "utility (product 'PDF Maestro', file version 1.1.0.13). " +
-                           "Detections: adware.artiligna (7), trojan/softlabsai (4), msil (2). " +
-                           "Installs with /quiet /startupshortcut; outbound HTTPS to " +
-                           "Cloudflare-fronted endpoint; DNS via Cloudflare resolver. " +
-                           "Assembly exposes browser search-hijack (ChromeSearchService, " +
-                           "SearchEngineHelper, ChromeHelper), shortcut/task persistence " +
-                           "(StartupShortcutHelper, StartupEnableHelper, " +
-                           "TaskSchedulerHelperForAutoLaunch), auto-update (UpdateService, " +
-                           "RolloutService), and offer/telemetry (OfferMetricsHelper, " +
-                           "TelemetryService). Anti-analysis: detect-debug-environment tag, " +
-                           "IsDebuggerPresent. PE header timestomped (LinkDate 2096-10-07)."
-        CVSS             = ""             # SRC: no CVE assignment found in sources
-        ThreatIntelSource = "VirusTotal (26/72 detections, last_analysis 2026-07-14) / " +
-                            "SentinelOne EDR Threat 2523362465382443557 (host jls667, 2026-07-14) / " +
-                            "Live-host scheduled-task audit (2026-07-16)"
-                            # SRC: VT > last_analysis_stats; SentinelOne > Threat Information;
-                            #      live-host Get-ScheduledTask enumeration
-        SandboxVerdictNote = "Zenbox dynamic verdict = harmless/CLEAN (confidence 81) " +
-                            "despite 26/72 static AV = malicious. See CAV-011 — do NOT " +
-                            "auto-dismiss on the sandbox verdict."
-                            # SRC: VT > sandbox_verdicts.Zenbox
-    }
-
-    Name = "PDFMaestro"   # SRC: VT > meaningful_name; SentinelOne > Threat name
-
-    # ------------------------------------------------------------------------
+     # ------------------------------------------------------------------------
     # Hashes / File IOCs                                    [NEW IN v1.1.0]
     # ------------------------------------------------------------------------
     # Primary executable identity. SHA1 is cross-confirmed across BOTH sources
