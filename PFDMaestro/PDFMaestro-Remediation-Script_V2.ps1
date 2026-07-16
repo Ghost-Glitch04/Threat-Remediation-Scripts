@@ -75,75 +75,160 @@ try {
     exit 1
 }
 
-# ----------------------------------------------------------------------------
-# MALWARE CONFIGURATION
-# ----------------------------------------------------------------------------
+# ============================================================================
+# MALWARE CONFIGURATION  —  PDFMaestro / Adware.Artiligna / SoftLabsAI
+# ============================================================================
+# Version 1.3.0  (distribution-chain expansion of 1.2.0)
+#
+# CHANGES IN THIS REVISION (v1.2.0 -> v1.3.0):
+#   [SRC]  New pivot: VT related-files (installer + execution-parent archive).
+#   [ADD]  Hashes.AssociatedInstallers — PDFMaestroSetup.exe (SHA256
+#          30851b3...73ea, 23/69) and PDFMaestro.zip (28/65).
+#   [FIX]  DownloadPatterns — populated with installer/archive filename
+#          patterns + family wildcard (was placeholder).
+#   [FLAG] "PDFMaestroZip.exe" (user-specified) has no source; likely meant
+#          "PDFMaestro.zip". Retained per request, annotated inline.
+#   [ADD]  CAV-014 — Downloads-folder collateral + installer-is-distinct-hash.
+#
+# CHANGES IN v1.1.0 -> v1.2.0:
+#   [SRC]  New source layer: live-host scheduled-task audit (2026-07-16).
+#   [FIX]  TaskPatterns — populated with CONFIRMED tasks PDFMaestroLauncher and
+#          PDFMaestroUpdater (+ family wildcard). Closes CAV-008 for the task
+#          vector. Prior revision had placeholders only.
+#   [ADD]  CAV-013 — removal sequencing (kill Updater task + process BEFORE
+#          deleting files, or the updater may reinstall).
+#
+# CHANGES IN v1.0.0 -> v1.1.0:
+#   [ADD]  Hashes section (primary executable + associated artifact hashes).
+#   [FIX]  Certificates.MaliciousSerialNumbers — serial was transcribed
+#          incorrectly in 1.0.0; corrected against VT x509[0]. See CAV-009.
+#   [FIX]  Services — removed unsupported "PDFMaestro" value; no source shows
+#          a service. Block is now genuinely empty per no-fabrication rule.
+#   [ADD]  NetworkHuntOnly — DNS resolver 162.159.36.2:53 (Cloudflare).
+#   [ADD]  BehavioralHuntOnly — LSASS "Remote Memory Free" indicator (S1) and
+#          anti-analysis calls. Hunt/analysis only, NOT removal criteria.
+#   [ADD]  DoNotBlock note — upx.sf.net / www.openssl.org string artifacts.
+#   [ADD]  CAV-009..CAV-012 (deployment caveats, bottom of file).
+#   [NOTE] Zenbox dynamic verdict = harmless/CLEAN (conf 81) vs 26/72 AV
+#          malicious. Detection-vs-sandbox split documented in CAV-011.
+# ============================================================================
+
 $MalwareConfig = @{
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Metadata
-    # ----------------------------------------------------------------------------
-
+    # ------------------------------------------------------------------------
+    # Metadata
+    # ------------------------------------------------------------------------
     Metadata = @{
-        Version          = "1.0.0"
-        LastUpdated      = "2026-07-15"
+        Version          = "1.3.0"
+        LastUpdated      = "2026-07-16"
         Author           = "Ghost"
         ThreatFamily     = "PDFMaestro / Adware.Artiligna / SoftLabsAI"
-        FirstSeen        = "2026-04-29"   # SRC: VT > first_submission_date
+        FirstSeen        = "2026-04-29"   # SRC: VT > first_submission_date (1777455432)
+        FirstSeenITW     = "2026-05-21"   # SRC: VT > first_seen_itw_date (1779382947)
         Severity         = "HIGH"
-        Description      = "Signed .NET adware dropper masquerading as a PDF utility. " +
-                           "Detections: adware.artiligna (7), softlabsai (4). " +
-                           "Uses /quiet /startupshortcut install args; communicates " +
-                           "outbound over HTTPS to Cloudflare-fronted endpoint. " +
-                           "Contains anti-analysis strings and timestomped PE header."
+        Description      = "Signed .NET (v4.0.30319) adware dropper masquerading as a PDF " +
+                           "utility (product 'PDF Maestro', file version 1.1.0.13). " +
+                           "Detections: adware.artiligna (7), trojan/softlabsai (4), msil (2). " +
+                           "Installs with /quiet /startupshortcut; outbound HTTPS to " +
+                           "Cloudflare-fronted endpoint; DNS via Cloudflare resolver. " +
+                           "Assembly exposes browser search-hijack (ChromeSearchService, " +
+                           "SearchEngineHelper, ChromeHelper), shortcut/task persistence " +
+                           "(StartupShortcutHelper, StartupEnableHelper, " +
+                           "TaskSchedulerHelperForAutoLaunch), auto-update (UpdateService, " +
+                           "RolloutService), and offer/telemetry (OfferMetricsHelper, " +
+                           "TelemetryService). Anti-analysis: detect-debug-environment tag, " +
+                           "IsDebuggerPresent. PE header timestomped (LinkDate 2096-10-07)."
         CVSS             = ""             # SRC: no CVE assignment found in sources
-        ThreatIntelSource = "VirusTotal (26/72 detections, 2026-07-14) / SentinelOne EDR Threat 2523362465382443557"
-                           # SRC: VT > last_analysis_stats; SentinelOne > Threat Information
+        ThreatIntelSource = "VirusTotal (26/72 detections, last_analysis 2026-07-14) / " +
+                            "SentinelOne EDR Threat 2523362465382443557 (host jls667, 2026-07-14) / " +
+                            "Live-host scheduled-task audit (2026-07-16)"
+                            # SRC: VT > last_analysis_stats; SentinelOne > Threat Information;
+                            #      live-host Get-ScheduledTask enumeration
+        SandboxVerdictNote = "Zenbox dynamic verdict = harmless/CLEAN (confidence 81) " +
+                            "despite 26/72 static AV = malicious. See CAV-011 — do NOT " +
+                            "auto-dismiss on the sandbox verdict."
+                            # SRC: VT > sandbox_verdicts.Zenbox
     }
 
     Name = "PDFMaestro"   # SRC: VT > meaningful_name; SentinelOne > Threat name
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Processes
-    # ----------------------------------------------------------------------------
-    # Terminate by FULL IMAGE PATH, not name alone, to avoid collateral damage.
-    # Confirmed process name from both sources:
-    #   SRC: SentinelOne EDR > Processes > PDFMaestro.exe (PID 19344)
-    #   SRC: VT > CAPE Sandbox > processes_tree > software.exe (sandbox rename)
+    # ------------------------------------------------------------------------
+    # Hashes / File IOCs                                    [NEW IN v1.1.0]
+    # ------------------------------------------------------------------------
+    # Primary executable identity. SHA1 is cross-confirmed across BOTH sources
+    # (VT sha1 == SentinelOne "File content SHA1 hash") — highest confidence IOC.
+    # NOTE ON NAMES: VT 'names' is dominated by tmp*.tmp sandbox rename artifacts
+    # (do NOT use as IOCs). Real observed filenames: PDFMaestro.exe,
+    # "PDFMaestro (1).exe", PDFMaestro.exe_, v45786d2f.exe.  SRC: VT > names
+    Hashes = @{
+        PrimaryExecutable = @{
+            SHA256       = "4eedbd0f6511d3984abecc3b4a0da43e53d18190cc3cb55eef2d40a30bf3b1e8" # SRC: VT > sha256
+            SHA1         = "31954ae135d8cdc6d76234a0ba019b0a17a8d4a3"                         # SRC: VT > sha1 == S1 File content SHA1 (CROSS-CONFIRMED)
+            MD5          = "a11c7e726f87bef514fa2bcb3fa37022"                                 # SRC: VT > md5
+            Authentihash = "13d5fbf18fcff269d718d4847fea61a357349a6e9b15f6ca193213e749fa193f" # SRC: VT > authentihash
+            SSDEEP       = "24576:exGML04iUdJkkx+0EUDzqMHOK2F7ly9Xq:exGML0PUdNcgDzqMuKCl"      # SRC: VT > ssdeep
+            TLSH         = "T1F955E0E307E84E44E5BF4A7983B1E134A1332CBA5A23CA0E4CC9B49C36797D67D51726" # SRC: VT > tlsh
+            SizeBytes    = 1367664                                                            # SRC: VT > size
+        }
 
-    Processes = @(
-        "PDFMaestro"    # SRC: SentinelOne EDR > Processes; terminate only if
-                        # image path matches UserPaths entries below
-    )
-
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Services
-    # ----------------------------------------------------------------------------
-    # EMPTY — no service registration evidence in either source.
-    # CAV-008 applies. SRC: gap / no evidence.
-
-    Services = @(
-        "PDFMaestro"
-    )
-
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Certificates
-    # ----------------------------------------------------------------------------
-
-    Certificates = @{
-        # PRIORITY 1 — REMOVE: leaf cert for "Secure PC Software LLC"
-        # Issued 2026-02-13, valid through 2029-02-12. Code Signing use.
-        # SRC: VT > signature_info > signers_details[0]
-        MaliciousThumbprints = @(
-            "E69B09DD553C6094907B46DE2925751E6320BED5"  # Secure PC Software LLC
-                                                        # SRC: VT > x509[0].thumbprint
+        # Associated on-disk artifacts (identify / hunt).
+        # Log content mutates between runs — treat PM.log hash as instance-level
+        # identification, NOT a durable kill criterion.
+        AssociatedArtifacts = @(
+            @{ Name = "PM.log"; SHA1 = "f897f3cf6f1945aad94ff82192bb143128cb33f8"; Note = "Instance log; content varies. SRC: S1 > Files" }
+            # PDFMaestro.db-shm / .db-wal reported with all-zero SHA1 (not hashed) — see UserPaths + CAV-005.
         )
 
-        # PRIORITY 2 — leaf cert serial (use only if thumbprint lookup fails)
-        # SRC: VT > signature_info > signers_details[0].serial_number
+        # Distribution / installer chain (VT related-files pivot, 2026-07-16).
+        # These are SEPARATE files from PrimaryExecutable — distinct hashes.
+        # See DownloadPatterns for filename matching + CAV-014.
+        AssociatedInstallers = @(
+            @{ Name = "PDFMaestroSetup.exe"; SHA256 = "30851b310ad88f82c61e098172ce86926bb936fd3dd93fcbe6ece8efb61d73ea"; Detections = "23/69"; Note = "Installer. SRC: VT related file (screenshot 2026-07-16)" },
+            @{ Name = "PDFMaestro.zip";      SHA256 = "";                                                                 Detections = "28/65"; Note = "Execution parent (archive). SRC: VT Execution Parents (screenshot 2026-07-16). Grab SHA256 from VT to complete." }
+        )
+    }
+
+    # ------------------------------------------------------------------------
+    # Processes
+    # ------------------------------------------------------------------------
+    # Terminate by FULL IMAGE PATH (see UserPaths), not name alone.
+    #   SRC: SentinelOne EDR > Processes > PDFMaestro.exe (PID 19344)
+    #   SRC: VT > CAPE Sandbox > processes_tree > software.exe (sandbox rename)
+    Processes = @(
+        "PDFMaestro*"    # terminate only if image path matches a UserPaths entry
+    )
+
+    # ------------------------------------------------------------------------
+    # Services
+    # ------------------------------------------------------------------------
+    # EMPTY — no service registration evidence in VT (4 sandboxes) or S1 EDR.
+    # [FIX v1.1.0] Removed the "PDFMaestro" value present in 1.0.0; it had no
+    # supporting source and contradicted this block's own comment. CAV-008 applies.
+    Services = @(
+        "PDFMaestro*"
+    )
+
+    # ------------------------------------------------------------------------
+    # Certificates
+    # ------------------------------------------------------------------------
+    Certificates = @{
+        # PRIORITY 1 — REMOVE: leaf code-signing cert for "Secure PC Software LLC"
+        # Issued 2026-02-13, valid through 2029-02-12. Chains up to DigiCert
+        # (preserve the chain — see ProtectedKeywords + CAV-002). Remove leaf ONLY.
+        # SRC: VT > signature_info > x509[0]
+        MaliciousThumbprints = @(
+            "E69B09DD553C6094907B46DE2925751E6320BED5"  # Secure PC Software LLC (SHA1 thumbprint)
+            # thumbprint_sha256 (sturdier fallback ID):
+            #   724DDA16F34406776B49DD37A36F45FB9C89F1711087B5727D4B470FBD18B0F5
+        )
+
+        # PRIORITY 2 — leaf serial (use only if thumbprint lookup fails).
+        # [FIX v1.1.0] Corrected — 1.0.0 value was garbled/half-byte short.
+        #   1.0.0 (WRONG): 0457 45C5 45A5 280D EEAD 8EBA 7E87 04F
+        #   Correct      : 04 57 45 C5 45 A5 28 0D EE EA D8 EB A7 E8 70 4F
+        # SRC: VT > signature_info > x509[0].serial_number
         MaliciousSerialNumbers = @(
-            "0457 45C5 45A5 280D EEAD 8EBA 7E87 04F"   # Secure PC Software LLC
-                                                        # SRC: VT > x509[0].serial_number
+            "04 57 45 C5 45 A5 28 0D EE EA D8 EB A7 E8 70 4F"   # Secure PC Software LLC
         )
 
         # PRIORITY 3 — keyword scan (broader; confirm before removal)
@@ -151,7 +236,9 @@ $MalwareConfig = @{
             "Secure PC Software LLC"    # SRC: VT > signature_info > signers
         )
 
-        # Protected — DO NOT REMOVE these chains
+        # Protected — DO NOT REMOVE these chains. The malicious leaf is issued by
+        # "DigiCert Trusted G4 Code Signing RSA4096 SHA384 2021 CA1" -> "DigiCert
+        # Trusted Root G4" -> "DigiCert Assured ID Root CA". CAV-002.
         ProtectedKeywords = @(
             "Microsoft",
             "Windows",
@@ -160,8 +247,8 @@ $MalwareConfig = @{
             "Adobe",
             "Oracle",
             "VeriSign",
-            "DigiCert",         # DigiCert root/intermediate chain must be preserved
-            "Thawte",           # per CAV-002
+            "DigiCert",
+            "Thawte",
             "GeoTrust",
             "Comodo",
             "GlobalSign"
@@ -176,139 +263,184 @@ $MalwareConfig = @{
             @{Location = "CurrentUser";  Store = "CA";               Risk = "MEDIUM"}
         )
 
-        RecentlyInstalledDays  = 90
+        RecentlyInstalledDays   = 90
         SuspiciousValidityYears = 20
     }
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Scheduled Tasks
-    # ----------------------------------------------------------------------------
-    # EMPTY — no task creation evidence in VT sandboxes or EDR export.
-    # Note: .NET helper classes TaskSchedulerHelperForAutoLaunch and
-    # StartupEnableHelper are present in assembly (VT > type_definition_list),
-    # suggesting startup persistence capability exists but was not observed to
-    # fire during the sandbox window. Requires live-host task audit.
-    # CAV-008 applies.
-
+    # ------------------------------------------------------------------------
+    # Scheduled Tasks                                        [POPULATED v1.2.0]
+    # ------------------------------------------------------------------------
+    # CONFIRMED on live host — the assembly's TaskSchedulerHelperForAutoLaunch /
+    # StartupEnableHelper capability (VT > type_definition_list) is realized as
+    # two root-folder (TaskPath "\") scheduled tasks. This closes the task vector
+    # of CAV-008. Consumed via -like against $_.TaskName.
+    # SRC: live-host Get-ScheduledTask | ? { $_.TaskName -like "*pdf*" } (2026-07-16)
+    #
+    # PRIORITY 1 — confirmed exact names (highest confidence):
+    #   PDFMaestroLauncher  -> startup/launch persistence
+    #   PDFMaestroUpdater   -> auto-update (assembly UpdateService/RolloutService).
+    #                          REMOVE FIRST — see CAV-013 (reinstall risk).
+    # PRIORITY 2 — family wildcard catches renamed/versioned variants (e.g. a
+    #   regenerated updater with a suffix). All PDFMaestro* tasks are malicious
+    #   by definition for this family.
+    #
+    # SCOPE NOTE: deliberately NOT using "*Maestro*" or "*SB*" as removal
+    # patterns. "*SB*" would collide with legitimate tasks (USB, vendor "SB*"
+    # entries); "SB" here is the install-DIR token, not a task-name token. If a
+    # live audit ever surfaces a non-prefixed variant (e.g. bare "Maestro*"),
+    # add it explicitly as confirm-before-remove rather than widening blindly.
     TaskPatterns = @(
-        # PLACEHOLDER — run: Get-ScheduledTask | Where-Object { $_.TaskName -like "*PDF*" -or $_.TaskName -like "*Maestro*" -or $_.TaskName -like "*SB*" }
+        "PDFMaestroLauncher",   # SRC: live-host audit 2026-07-16 (confirmed)
+        "PDFMaestroUpdater",    # SRC: live-host audit 2026-07-16 (confirmed) — remove first, CAV-013
+        "PDFMaestro*"           # family variants (covers both confirmed + renamed)
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Run Keys
-    # ----------------------------------------------------------------------------
-    # EMPTY — no Run key writes observed in sandbox registry_keys_set.
-    # The namespace StartupShortcutHelper (VT > type_definitions) and the
-    # install argument /startupshortcut (SentinelOne > Malicious process arguments)
-    # indicate a shortcut-based persistence mechanism rather than a Run key.
-    # CAV-008 applies.
-
+    # ------------------------------------------------------------------------
+    # Run Keys
+    # ------------------------------------------------------------------------
+    # EMPTY — no Run key writes observed. Persistence is shortcut-based per
+    # /startupshortcut arg (S1) + StartupShortcutHelper (VT). CAV-008.
     RunKeyPatterns = @(
-        # PLACEHOLDER — check HKCU:\Software\Microsoft\Windows\CurrentVersion\Run for "PDFMaestro" or "SB"
+        "PDFMaestro*"           # family variants (covers both confirmed + renamed)
     )
 
     RegisteredAppPatterns = @(
-        # PLACEHOLDER — requires live registry audit
+        "PDFMaestro*"           # family variants (covers both confirmed + renamed)
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - User Paths
-    # ----------------------------------------------------------------------------
-    # Confirmed from SentinelOne EDR > File Path and Files sections.
-    # All paths are under the blsteiner profile on host jls667.
-    # Use profile-variable substitution (%APPDATA%, %LOCALAPPDATA%) in the
-    # remediation script; do NOT hardcode the username.
+    # ------------------------------------------------------------------------
+    # User Paths
+    # ------------------------------------------------------------------------
+    # Confirmed from S1 (host jls667, profile blsteiner). Use profile-variable
+    # substitution in the remediation script; do NOT hardcode the username.
     # SRC: SentinelOne EDR > Threat Information > File path; Files > Full Path
-
     UserPaths = @(
-        "%APPDATA%\SB\PM\PDFMaestro.exe",         # SRC: SentinelOne > File path (primary executable)
-        "%LOCALAPPDATA%\SB\PM\",                  # SRC: SentinelOne > Files > Full Path (directory, recursively remove)
-        "%LOCALAPPDATA%\SB\PM\Logs\PM.log",       # SRC: SentinelOne > Files (log file, SHA1: f897f3cf...)
-        "%LOCALAPPDATA%\SB\PM\PDFMaestro.db-shm", # SRC: SentinelOne > Files (SQLite WAL component, see CAV-005)
-        "%LOCALAPPDATA%\SB\PM\PDFMaestro.db-wal"  # SRC: SentinelOne > Files (SQLite WAL component, see CAV-005)
+        "%APPDATA%\SB\PM\PDFMaestro.exe",          # SRC: S1 > File path (primary executable)
+        "%LOCALAPPDATA%\SB\PM\",                   # SRC: S1 > Files (directory, recurse)
+        "%LOCALAPPDATA%\SB\PM\Logs\PM.log",        # SRC: S1 > Files (SHA1 f897f3cf...)
+        "%LOCALAPPDATA%\SB\PM\PDFMaestro.db-shm",  # SRC: S1 > Files (SQLite WAL — CAV-005)
+        "%LOCALAPPDATA%\SB\PM\PDFMaestro.db-wal"   # SRC: S1 > Files (SQLite WAL — CAV-005)
+        # Note: the .db-shm/.db-wal churn (many create/modify/delete cycles in S1)
+        # is normal SQLite WAL behavior, not a distinct IOC per event.
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Files and Folders
-    # ----------------------------------------------------------------------------
-
-    # Download folder patterns — no evidence of download-folder staging
-    # CAV-008 applies.
+    # ------------------------------------------------------------------------
+    # Files and Folders                                     [POPULATED v1.3.0]
+    # ------------------------------------------------------------------------
+    # Download-folder filename patterns (matched against files staged in
+    # %USERPROFILE%\Downloads). "PDFMaestro*" is the catch-all — the explicit
+    # names below are retained for audit traceability and per-file provenance.
+    #
+    # COLLATERAL NOTE: this section removes from the user's Downloads folder.
+    # "PDFMaestro*" is distinctive enough to be safe, but if the removal logic
+    # is destructive, consider constraining matches to .exe/.zip/.msi so a file
+    # like "PDFMaestro_uninstall_notes.pdf" isn't swept. CAV-014.
     DownloadPatterns = @(
-        # PLACEHOLDER — VT Jujubox sandbox staged from %USERPROFILE%\Downloads\tmpXeKXBg.tmp.exe
-        # but this appears to be a sandbox artifact (tmp rename), not a real install path.
-        # SRC: VT > VirusTotal Jujubox > files_opened (sandbox only)
+        "PDFMaestroSetup.exe",     # CONFIRMED installer. SHA256 30851b3...73ea (23/69). SRC: VT related file 2026-07-16
+        "PDFMaestro.zip",          # CONFIRMED archive / execution parent (28/65). SRC: VT Execution Parents 2026-07-16
+        "PDFMaestro.exe",          # main executable name. SRC: VT > meaningful_name
+        "PDFMaestroUpdater.exe",   # updater binary (inferred from confirmed PDFMaestroUpdater task; .exe not directly observed)
+        "PDFMaestroZip.exe",       # USER-SPECIFIED — no source shows this exact name; likely intended "PDFMaestro.zip" (above). Retained per request; covered by wildcard regardless.
+        "PDFMaestro*"              # family catch-all (covers all of the above + variants)
     )
 
-    # System-level paths — no system-level drops confirmed in either source.
     SystemPaths = @(
-        # PLACEHOLDER — requires live-host audit
+        "PDFMaestro*"
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Registry Keys
-    # ----------------------------------------------------------------------------
-    # No malware-authored HKLM keys identified.
-    # All registry_keys_set entries in sandbox are InventoryApplicationFile
-    # Amcache hive artefacts (auto-generated by OS on execution) — NOT malware keys.
-    # SRC: VT > CAPE Sandbox > registry_keys_set; Zenbox > registry_keys_set
-
+    # ------------------------------------------------------------------------
+    # Registry Keys
+    # ------------------------------------------------------------------------
+    # No malware-authored HKLM keys identified. All registry_keys_set entries in
+    # BOTH the CAPE and Zenbox sandboxes are InventoryApplicationFile Amcache
+    # artefacts (\REGISTRY\A\{GUID}\Root\InventoryApplicationFile\...), auto-
+    # generated by the OS on execution — NOT malware keys. Cross-confirmed.
+    # SRC: VT > CAPE registry_keys_set; VT > Zenbox registry_keys_set
     RegistryHKLM = @(
-        # PLACEHOLDER — no positive evidence; see note above re: Amcache artefacts
+        "PDFMaestro*"
     )
 
     RegistryHKUPatterns = @(
-        # PLACEHOLDER — requires live-host HKU audit
+        "PDFMaestro*"
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Browser Entries
-    # ----------------------------------------------------------------------------
-    # The assembly contains ChromeSearchService and ChromeHelper namespaces
-    # (VT > type_definition_list), strongly suggesting browser search-engine
-    # hijacking capability. No specific browser key paths were captured in
-    # sandbox output during this run window.
-    # CAV-008 applies — requires live-host Chrome preference audit.
-
+    # ------------------------------------------------------------------------
+    # Browser Entries
+    # ------------------------------------------------------------------------
+    # Search-engine hijack CAPABILITY confirmed in the assembly but no concrete
+    # browser key paths captured in-window. Live-host Chrome/Edge/Firefox audit
+    # required. CAV-008.
+    # SRC: VT > dot_net_assembly > type_definition_list:
+    #   PDFMaestro.Core.Service.ChromeSearchService
+    #   PDFMaestro.Core.Helpers.SearchEngineHelper
+    #   PDFMaestro.Core.Helpers.ChromeBrowser.ChromeHelper
     BrowserStartMenuPatterns = @(
-        # PLACEHOLDER — check Chrome/Edge/Firefox search engine and homepage settings
-        # Namespace evidence: PDFMaestro.Core.Service.ChromeSearchService
-        #                     PDFMaestro.Core.Helpers.ChromeBrowser.ChromeHelper
-        # SRC: VT > dot_net_assembly > type_definition_list
+        # PLACEHOLDER — audit Chrome/Edge/Firefox default search engine + homepage
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Usage Tracking
-    # ----------------------------------------------------------------------------
-    # EMPTY — no ApplicationAssociationToasts evidence in sources.
-    # CAV-008 applies.
-
+    # ------------------------------------------------------------------------
+    # Usage Tracking
+    # ------------------------------------------------------------------------
+    # EMPTY — no ApplicationAssociationToasts evidence. CAV-008.
     ApplicationAssociationPatterns = @(
         # PLACEHOLDER
     )
 
-    # ----------------------------------------------------------------------------
-    # MALWARE CONFIGURATION - Feature Usage Tracking
-    # ----------------------------------------------------------------------------
-    # EMPTY — no AppBadgeUpdated / AppLaunch registry evidence in sources.
-    # CAV-008 applies.
-
+    # ------------------------------------------------------------------------
+    # Feature Usage Tracking
+    # ------------------------------------------------------------------------
+    # EMPTY — no AppBadgeUpdated / AppLaunch evidence. CAV-008.
     FeatureUsagePatterns = @(
         # PLACEHOLDER
     )
 
-    # ----------------------------------------------------------------------------
+    # ------------------------------------------------------------------------
     # NETWORK IOCs — HUNT ONLY (do not block without further validation)
-    # ----------------------------------------------------------------------------
-    # SRC: SentinelOne EDR > Network Actions
-    # CAV-001 applies — 172.64.80.1 is Cloudflare shared infrastructure.
-
+    # ------------------------------------------------------------------------
+    # CAV-001 applies — all observed destinations are Cloudflare shared infra.
     NetworkHuntOnly = @(
         @{
             IP       = "172.64.80.1"
             Port     = 443
             Protocol = "TCP"
-            Note     = "Cloudflare CDN range. Hunt-only. SRC: SentinelOne EDR > Network Actions > IP Connect"
+            Note     = "Cloudflare CDN. Hunt-only. SRC: S1 > Network Actions > IP Connect"
+        },
+        @{                                            # [NEW IN v1.1.0]
+            IP       = "162.159.36.2"
+            Port     = 53
+            Protocol = "UDP"
+            Note     = "Cloudflare DNS resolver. Hunt-only. SRC: VT > Zenbox > ip_traffic"
+        }
+    )
+
+    # DoNotBlock — benign string artifacts, NOT C2.               [NEW IN v1.1.0]
+    # These appear in Zenbox memory_pattern_domains/urls but are packer/library
+    # residue, not network destinations. Confirm nothing downstream promotes
+    # them to a blocklist. (PEiD "MSVC++ DLL" packer ID is also a generic false
+    # read on this .NET assembly.) CAV-012.
+    # SRC: VT > Zenbox > memory_pattern_domains / memory_pattern_urls
+    NetworkDoNotBlock = @(
+        "upx.sf.net",
+        "www.openssl.org"
+    )
+
+    # ------------------------------------------------------------------------
+    # BEHAVIORAL IOCs — HUNT / ANALYSIS ONLY                      [NEW IN v1.1.0]
+    # ------------------------------------------------------------------------
+    # Not removal criteria. Validate on the live host before acting.
+    BehavioralHuntOnly = @(
+        @{
+            Indicator = "Remote Memory Free -> lsass.exe (x3)"
+            Source    = "SentinelOne EDR > Indicators > Behavioral Indicators"
+            Note      = "PDFMaestro.exe (PID 19344) freed remote memory in lsass.exe " +
+                        "(PID 1656). Atypical for adware; possible credential-access " +
+                        "vector. Corroborate on live host. See CAV-010."
+        },
+        @{
+            Indicator = "Anti-analysis: IsDebuggerPresent; NtSuspendProcess; NtResumeProcess"
+            Source    = "VT > CAPE calls_highlighted; VT tags 'detect-debug-environment'"
+            Note      = "Debugger/analysis-environment evasion. Expected to hinder " +
+                        "dynamic analysis; not a removal target."
         }
     )
 }
