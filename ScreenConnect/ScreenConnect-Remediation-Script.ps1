@@ -61,6 +61,8 @@ $MalwareConfig = @{
     # Process names to terminate (without .exe extension)
     Processes = @(
         "ScreenConnect",
+        "ScreenConnect.Client",
+        "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
         "OneStartService",
@@ -144,6 +146,8 @@ $MalwareConfig = @{
     # Service names to stop and remove
     Services = @(
         "ScreenConnect",
+        "ScreenConnect.Client",
+        "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
         "OneStartService",
@@ -204,6 +208,8 @@ $MalwareConfig = @{
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
         SuspiciousKeywords = @(
             "ScreenConnect",
+            "ScreenConnect.Client",
+            "ScreenConnect.ClientSetup",
             "ScreenConnect.WindowsClient",
             "HideMouse",
             "OneStart",
@@ -280,6 +286,8 @@ $MalwareConfig = @{
     # Scheduled task patterns
     TaskPatterns = @(
         "ScreenConnect",
+        "ScreenConnect.Client",
+        "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",        
         "OneStartUser",
@@ -308,6 +316,8 @@ $MalwareConfig = @{
     # Registry value patterns to remove from Run keys
     RunKeyPatterns = @(
         "ScreenConnect",
+        "ScreenConnect.Client",
+        "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
         "OneStart*",                      # Catches: OneStart, OneStartUpdate, OneStartBar, etc.
@@ -340,6 +350,8 @@ $MalwareConfig = @{
     # Registered applications patterns
     RegisteredAppPatterns = @(
         "ScreenConnect",
+        "ScreenConnect.Client",
+        "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
         "OneStart*",
@@ -482,6 +494,10 @@ $MalwareConfig = @{
     DownloadPatterns = @(
         "ScreenConnect*.exe",
         "ScreenConnect*.msi",
+        "ScreenConnect.Client*.exe",
+        "ScreenConnect.Client*.msi",
+        "ScreenConnect.ClientSetup*.exe",
+        "ScreenConnect.ClientSetup*.msi",
         "ScreenConnect.WindowsClient*.exe",
         "ScreenConnect.WindowsClient*.msi",
         "HideMouse*.exe",
@@ -752,6 +768,8 @@ $MalwareConfig = @{
     # Browser hijacking entries (specific patterns)
     BrowserStartMenuPatterns = @(
         "ScreenConnect",
+        "ScreenConnect.Client",
+        "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
         "OneStart*",
@@ -778,6 +796,8 @@ $MalwareConfig = @{
     # File association tracking patterns (ApplicationAssociationToasts)
     ApplicationAssociationPatterns = @(
         "ScreenConnect",
+        "ScreenConnect.Client",
+        "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
         "OneStart*",
@@ -807,6 +827,8 @@ $MalwareConfig = @{
     # Feature usage tracking patterns (AppBadgeUpdated, AppLaunch, etc.)
     FeatureUsagePatterns = @(
         "ScreenConnect",
+        "ScreenConnect.Client",
+        "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
         "OneStart*",
