@@ -35,16 +35,24 @@ $MalwareConfig = @{
     # ----------------------------------------------------------------------------
 
     Metadata = @{
-        Version = "2.3.0"  # UPDATED
-        LastUpdated = "2026-02-24"  # UPDATED
-        Author = "sentinelrshuser"
-        ThreatFamily = "EvilAI / OneStart.AI / OpenMyManual / Isher"
-        FirstSeen = "2023-10"
-        Severity = "HIGH"
-        Description = "Browser hijacker and PUP family that installs unwanted certificates, modifies browser settings, and steals credential data. Distributed via rebranded PDF utilities and manual finder apps."
+        Version           = "1.0.0"
+        LastUpdated       = "2026-07-29"
+        Author            = "Ghost"
+        ThreatFamily      = "HideMouse (ScreenConnect-delivered cursor-concealment hacktool)"
+        FirstSeen         = "2026-07-19"  # SRC: SentinelOne CSV "Identified at" (this environment)
+        # NOTE: VT first_submission_date shows 2025-05-07 (global first sighting,
+        # unrelated sample submission) - kept separate from this org's detection date.
+        Severity          = "CRITICAL"    # Justification: confirmed initial-access/breach
+                                            # pivot vector via unauthorized ScreenConnect (CAV-001/002)
+        Description       = "Cursor-hiding .NET hacktool (HideMouse.exe) dropped and executed via an unauthorized ScreenConnect.WindowsClient.exe session; consistent with remote-access-fraud tradecraft where the operator's mouse activity is concealed from the logged-in user during a live session."
+        CVSS              = ""            # SRC: none - not populated. CVSS scores a
+                                            # vulnerability, not an incident; the template's
+                                            # prior placeholder value (8.5) had no source and
+                                            # has been removed rather than carried forward.
+        ThreatIntelSource = "VirusTotal (39/74 engines malicious, sha256 4c3ba24d...98b4a1) + SentinelOne EDR (Confidence: Malicious, Mitigation: Mitigated)"
     }
-
-    Name = "EvilAI"
+ 
+    Name = "HideMouse.exe"  # SRC: EDR CSV "Threat name" / VT meaningful_name
     
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Processes
@@ -52,6 +60,9 @@ $MalwareConfig = @{
 
     # Process names to terminate (without .exe extension)
     Processes = @(
+        "ScreenConnect",
+        "ScreenConnect.WindowsClient",
+        "HideMouse",
         "OneStartService",
         "OneStartAutoLaunch",
         "OneStartCrashHandler",
@@ -132,6 +143,9 @@ $MalwareConfig = @{
 
     # Service names to stop and remove
     Services = @(
+        "ScreenConnect",
+        "ScreenConnect.WindowsClient",
+        "HideMouse",
         "OneStartService",
         "PDFEditorService",
         "AppSuitesService",
@@ -189,6 +203,9 @@ $MalwareConfig = @{
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
         SuspiciousKeywords = @(
+            "ScreenConnect",
+            "ScreenConnect.WindowsClient",
+            "HideMouse",
             "OneStart",
             "OneStart.AI",
             "One Start",
@@ -262,6 +279,9 @@ $MalwareConfig = @{
 
     # Scheduled task patterns
     TaskPatterns = @(
+        "ScreenConnect",
+        "ScreenConnect.WindowsClient",
+        "HideMouse",        
         "OneStartUser",
         "OneStartAutoLaunchTask*",
         "PDFEditorScheduledTask",
@@ -287,6 +307,9 @@ $MalwareConfig = @{
 
     # Registry value patterns to remove from Run keys
     RunKeyPatterns = @(
+        "ScreenConnect",
+        "ScreenConnect.WindowsClient",
+        "HideMouse",
         "OneStart*",                      # Catches: OneStart, OneStartUpdate, OneStartBar, etc.
         "OneStartChromium*",              # Specific entry from VT report
         "OneStartUpdate*",                # Specific entry from VT report
@@ -316,6 +339,9 @@ $MalwareConfig = @{
     
     # Registered applications patterns
     RegisteredAppPatterns = @(
+        "ScreenConnect",
+        "ScreenConnect.WindowsClient",
+        "HideMouse",
         "OneStart*",
         "AppSuites*",
         "PDFZonePro*",      # NEW
@@ -338,6 +364,14 @@ $MalwareConfig = @{
     
     # User-specific paths (exact matches only)
     UserPaths = @(
+        # NOTE: Documents/Desktop coverage lives in DocumentsPatterns below and is
+        # handled by the recursive Phase 2b scan. A literal Documents path was
+        # removed from here because Phase 1 does exact-path matching only (no
+        # wildcard expansion), so it could never match ScreenConnect's randomized
+        # session folders.
+        "C:\Users\{USER}\AppData\Local\ScreenConnect",
+        "C:\Users\{USER}\AppData\Local\ScreenConnect.WindowsClient",
+        "C:\Users\{USER}\AppData\Local\HideMouse",
         "C:\Users\{USER}\AppData\Local\OneStart.ai",
         "C:\Users\{USER}\OneStart.ai",
         "C:\Users\{USER}\AppData\Local\AppSuites",
@@ -446,6 +480,12 @@ $MalwareConfig = @{
 
     # Download folder patterns (specific to OneStart)
     DownloadPatterns = @(
+        "ScreenConnect*.exe",
+        "ScreenConnect*.msi",
+        "ScreenConnect.WindowsClient*.exe",
+        "ScreenConnect.WindowsClient*.msi",
+        "HideMouse*.exe",
+        "HideMouse*.msi",
         "OneStart*.exe",
         "*OneStart*.msi",
         "*AppSuites*.msi",
@@ -547,7 +587,24 @@ $MalwareConfig = @{
         "*TamperedChef*.exe",
         "*TamperedChef*.msi"
     )
-    
+
+    # ----------------------------------------------------------------------------
+    # MALWARE CONFIGURATION - Documents/Desktop Scan Patterns
+    # ----------------------------------------------------------------------------
+
+    # Recursive scan patterns for user document/desktop folders.
+    # SAFETY: these run against USER DATA and delete on match. Keep every
+    # pattern anchored to a threat name. Never add bare extension globs
+    # (*.exe / *.msi) here - that belongs in DownloadPatterns only.
+    # Matching is intentionally NOT restricted to files, so the ScreenConnect
+    # session directory itself is matched and removed recursively in one shot.
+    DocumentsPatterns = @(
+        "ScreenConnect",            # session folder (dir)
+        "ScreenConnect*",           # ScreenConnect.WindowsClient*, ScreenConnect.Client.dll
+        "ConnectWiseControl*",      # vendor rebrand of the same client
+        "HideMouse*"                # HideMouse.exe and any .tmp/.log siblings
+    )
+
     # System-level paths
     SystemPaths = @(
         "C:\WINDOWS\system32\config\systemprofile\AppData\Local\OneStart.ai",
@@ -580,7 +637,7 @@ $MalwareConfig = @{
         "C:\Program Files\RecipeLister",
         "C:\Program Files (x86)\RecipeLister",
         "C:\Program Files\TamperedChef",
-        "C:\Program Files (x86)\TamperedChef"
+        "C:\Program Files (x86)\TamperedChef",
         "C:\Windows\SystemTemp\ScreenConnect"
     )
     
@@ -694,6 +751,9 @@ $MalwareConfig = @{
     
     # Browser hijacking entries (specific patterns)
     BrowserStartMenuPatterns = @(
+        "ScreenConnect",
+        "ScreenConnect.WindowsClient",
+        "HideMouse",
         "OneStart*",
         "AppSuites*",
         "PDFZonePro*",
@@ -717,6 +777,9 @@ $MalwareConfig = @{
 
     # File association tracking patterns (ApplicationAssociationToasts)
     ApplicationAssociationPatterns = @(
+        "ScreenConnect",
+        "ScreenConnect.WindowsClient",
+        "HideMouse",
         "OneStart*",
         "OSBHTML*",
         "AppSuites*",
@@ -743,6 +806,9 @@ $MalwareConfig = @{
 
     # Feature usage tracking patterns (AppBadgeUpdated, AppLaunch, etc.)
     FeatureUsagePatterns = @(
+        "ScreenConnect",
+        "ScreenConnect.WindowsClient",
+        "HideMouse",
         "OneStart*",
         "AppSuites*",
         "PDFEditor*",
@@ -3188,21 +3254,25 @@ function Remove-MalwareFiles {
     .SYNOPSIS
     Removes malware files and folders from the system
     .DESCRIPTION
-    Orchestrates file system cleanup in three phases:
+    Orchestrates file system cleanup in four phases:
     1. User-specific paths (per user profile)
     2. Downloads folder cleanup (malware installers)
+    2b. Documents/Desktop/Public recursive pattern scan (randomized drop folders)
     3. System-level paths (shared/system locations)
-    
+
     Tracks all actions and generates detailed summary report.
     #>
-    
+
     param(
         [Parameter(Mandatory=$true)]
         [array]$UserPaths,
-        
+
         [Parameter(Mandatory=$true)]
         [array]$DownloadPatterns,
-        
+
+        [Parameter(Mandatory=$true)]
+        [array]$DocumentsPatterns,
+
         [Parameter(Mandatory=$true)]
         [array]$SystemPaths
     )
@@ -3215,6 +3285,7 @@ function Remove-MalwareFiles {
     Write-Log "========================================" -Level INFO
     Write-Log "Target user paths: $($UserPaths.Count)" -Level INFO
     Write-Log "Download patterns: $($DownloadPatterns.Count)" -Level INFO
+    Write-Log "Documents patterns: $($DocumentsPatterns.Count)" -Level INFO
     Write-Log "System paths: $($SystemPaths.Count)" -Level INFO
     Write-Log "" -Level INFO
     
@@ -3300,6 +3371,83 @@ function Remove-MalwareFiles {
         }
     }
      
+    # ========================================================================
+    # PHASE 2b: Documents / Desktop / Public Recursive Scan
+    # ========================================================================
+    # Recursively pattern-matches each user's Documents and Desktop folders,
+    # plus the shared Public folders. This catches ScreenConnect's randomized
+    # session directories (e.g. Documents\ScreenConnect\Temp\<random>\) that
+    # Phase 1's exact-path matching cannot reach.
+    #
+    # SAFETY: this phase deletes inside USER DATA. Its only guard is the
+    # narrowness of $DocumentsPatterns - see the config block for the rules.
+
+    Write-Log "" -Level INFO
+    Write-Log "Phase 2b: Scanning Documents/Desktop folders..." -Level INFO
+
+    # Build the scan-root list. Reuses $userProfiles from Phase 1.
+    $scanRoots = @()
+    foreach ($user in $userProfiles) {
+        $scanRoots += "C:\Users\$user\Documents"
+        $scanRoots += "C:\Users\$user\Desktop"
+    }
+
+    # Public is excluded by Get-UserProfiles by design (it also feeds Phases 1
+    # and 2, where {USER} templates must not resolve against it). Add its
+    # shared folders explicitly rather than loosening that filter.
+    $scanRoots += "C:\Users\Public\Documents"
+    $scanRoots += "C:\Users\Public\Desktop"
+
+    foreach ($root in $scanRoots) {
+        # Skip missing roots - Desktop/Documents are often redirected or absent
+        if (-not (Test-Path $root)) {
+            Write-Log "  [SKIPPED] Folder not found: $root" -Level INFO
+            continue
+        }
+
+        Write-Log "  ---" -Level INFO
+        Write-Log "  Scanning: $root" -Level INFO
+
+        # Collect matches across every pattern first, then dedupe. Patterns
+        # overlap by design (e.g. "ScreenConnect" and "ScreenConnect*" both
+        # match the session folder), so without this PathsChecked double-counts.
+        $matchedItems = @()
+        foreach ($pattern in $DocumentsPatterns) {
+            $found = Get-ChildItem $root -Filter $pattern -Recurse `
+                -Force -ErrorAction SilentlyContinue
+
+            if ($found) {
+                Write-Log "    Found $($found.Count) item(s) matching pattern: $pattern" -Level WARNING
+                $matchedItems += $found
+            }
+        }
+
+        if ($matchedItems.Count -eq 0) { continue }
+
+        # Dedupe, then sort shortest-path-first so a matched parent directory is
+        # removed before its matched children are visited. Children removed as
+        # part of the parent then fall through Remove-PathItem's leading
+        # Test-Path into the NotFound bucket rather than erroring.
+        $matchedItems = $matchedItems |
+            Sort-Object -Property FullName -Unique |
+            Sort-Object { $_.FullName.Length }
+
+        foreach ($item in $matchedItems) {
+            # Increment paths checked counter
+            $RemediationResults.Summary.PathsChecked++
+
+            # Attempt to remove the item
+            $result = Remove-PathItem -Path $item.FullName
+
+            # Track items not found (already removed with a parent directory)
+            if ($result -eq $StatusLevels.NotFound) {
+                $record = New-FileRecord -Path $item.FullName -Status $StatusLevels.NotFound
+                $RemediationResults.Files.NotFound += $record
+                $RemediationResults.Summary.PathsNotFound++
+            }
+        }
+    }
+
     # ========================================================================
     # PHASE 3: System-Level Paths
     # ========================================================================
@@ -4477,6 +4625,7 @@ Write-Log "--------------------------------------------" -Level INFO
 try {
     Remove-MalwareFiles -UserPaths $MalwareConfig.UserPaths `
         -DownloadPatterns $MalwareConfig.DownloadPatterns `
+        -DocumentsPatterns $MalwareConfig.DocumentsPatterns `
         -SystemPaths $MalwareConfig.SystemPaths
     
     $moduleEndTime = Get-Date
