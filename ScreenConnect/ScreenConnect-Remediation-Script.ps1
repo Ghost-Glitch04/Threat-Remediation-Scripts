@@ -67,6 +67,7 @@ $MalwareConfig = @{
         "HideMouse",
         "Password",
         "Get-PASSWORD",
+        "phonepc",
         "OneStartService",
         "OneStartAutoLaunch",
         "OneStartCrashHandler",
@@ -154,6 +155,7 @@ $MalwareConfig = @{
         "HideMouse",
         "Password",
         "Get-PASSWORD",
+        "phonepc",
         "OneStartService",
         "PDFEditorService",
         "AppSuitesService",
@@ -218,6 +220,7 @@ $MalwareConfig = @{
             "HideMouse",
             "Password",
             "Get-PASSWORD",
+            "phonepc",
             "OneStart",
             "OneStart.AI",
             "One Start",
@@ -298,6 +301,7 @@ $MalwareConfig = @{
         "HideMouse",
         "Password",
         "Get-PASSWORD",
+        "phonepc",
         "OneStartUser",
         "OneStartAutoLaunchTask*",
         "PDFEditorScheduledTask",
@@ -330,6 +334,7 @@ $MalwareConfig = @{
         "HideMouse",
         "Password",
         "Get-PASSWORD",
+        "phonepc",
         "OneStart*",                      # Catches: OneStart, OneStartUpdate, OneStartBar, etc.
         "OneStartChromium*",              # Specific entry from VT report
         "OneStartUpdate*",                # Specific entry from VT report
@@ -366,6 +371,7 @@ $MalwareConfig = @{
         "HideMouse",
         "Password",
         "Get-PASSWORD",
+        "phonepc",
         "OneStart*",
         "AppSuites*",
         "PDFZonePro*",      # NEW
@@ -398,6 +404,7 @@ $MalwareConfig = @{
         "C:\Users\{USER}\AppData\Local\HideMouse",
         "C:\Users\{USER}\OneDrive\Documents\ScreenConnect\Temp\Password.exe",
         "C:\Users\{USER}\Desktop\Get-PASSWORD.exe",
+        "C:\Users\{USER}\Documents\ScreenConnect\Temp\phonepc.exe",
         "C:\Users\{USER}\AppData\Local\OneStart.ai",
         "C:\Users\{USER}\OneStart.ai",
         "C:\Users\{USER}\AppData\Local\AppSuites",
@@ -520,6 +527,8 @@ $MalwareConfig = @{
         "Password*.msi",
         "Get-PASSWORD*.exe",
         "Get-PASSWORD*.msi",
+        "phonepc*.exe",
+        "phonepc*.msi",
         "OneStart*.exe",
         "*OneStart*.msi",
         "*AppSuites*.msi",
@@ -638,7 +647,8 @@ $MalwareConfig = @{
         "ConnectWiseControl*",      # vendor rebrand of the same client
         "HideMouse*",                # HideMouse.exe and any .tmp/.log siblings
         "Password.exe",                 # Password.exe and any .tmp/.log siblings
-        "Get-PASSWORD.exe"              # Get-PASSWORD.exe and any .tmp/.log siblings
+        "Get-PASSWORD.exe",            # Get-PASSWORD.exe and any .tmp/.log siblings
+        "phonepc.exe"                  # phonepc.exe and any .tmp/.log siblings
     )
 
     # System-level paths
@@ -792,6 +802,9 @@ $MalwareConfig = @{
         "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
+        "Password*",
+        "Get-PASSWORD*",
+        "phonepc*",
         "OneStart*",
         "AppSuites*",
         "PDFZonePro*",
@@ -821,6 +834,9 @@ $MalwareConfig = @{
         "ScreenConnect.WindowsClient",
         "HideMouse",
         "OneStart*",
+        "Password*",
+        "Get-PASSWORD*",
+        "phonepc*",
         "OSBHTML*",
         "AppSuites*",
         "PDFEditor*",
@@ -851,6 +867,9 @@ $MalwareConfig = @{
         "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
+        "Password*",
+        "Get-PASSWORD*",
+        "phonepc*",
         "OneStart*",
         "AppSuites*",
         "PDFEditor*",
