@@ -126,7 +126,8 @@ $MalwareConfig = @{
         "ManualFinder",
         "AceLauncher",
         "AceLauncherUpdater",
-        "AceLauncherDock"
+        "AceLauncherDock",
+        "PDFFlows"
         # NOTE: The Velopack "Update.exe" updater is NOT listed here because that
         # generic name also matches legitimate apps (Discord, GitHub Desktop, Teams,
         # other Squirrel/Velopack apps). It is terminated by the path-scoped
@@ -158,7 +159,8 @@ $MalwareConfig = @{
         "ManualFinder",
         "ManualFinderService",
         "AceLauncher",
-        "AceLauncherUpdater"
+        "AceLauncherUpdater",
+        "PDFFlows"
     )
     
     # ----------------------------------------------------------------------------
@@ -239,7 +241,8 @@ $MalwareConfig = @{
             "Recipe Lister",
             "Tampered Chef",
             "Sunstream Labs",
-            "Capital Intellect"
+            "Capital Intellect",
+            "WIN.RAR GMBH"
         )
         
         # Protected keywords - REPORT ONLY, DO NOT DELETE
@@ -284,6 +287,7 @@ $MalwareConfig = @{
         "OneStartAutoLaunchTask*",
         "PDFEditorScheduledTask",
         "PDFEditorUScheduledTask",
+        "PDFFlows*",
         "sys_component_health_*",
         "AppSuitesTask*",  # Added for AppSuites variant
         "OpenMyManual*",
@@ -342,7 +346,8 @@ $MalwareConfig = @{
         "TamperedChef*",
         "AceLauncher*",
         "AceLauncherDock*",
-        "AceLauncherAutoUpdate*"
+        "AceLauncherAutoUpdate*",
+        "PDFFlows*"
     )
     
     # Registered applications patterns
@@ -367,7 +372,8 @@ $MalwareConfig = @{
         "TamperedChef*",
         "AceLauncher*",
         "AceLauncherDock*",
-        "AceLauncherAutoUpdate*"
+        "AceLauncherAutoUpdate*",
+        "PDFFlows*"
     )
     
     # User-specific paths (exact matches only)
@@ -590,7 +596,9 @@ $MalwareConfig = @{
         "AceLauncher.INI",
         "AceLauncher.pdb",
         "AceLauncherUpdater.exe",
-        "AceLauncherDock-*-full.nupkg"
+        "AceLauncherDock-*-full.nupkg",
+        "PDFFlows*.exe ",
+        "PDFFlows*.msi"
     )
     
     # System-level paths
@@ -781,7 +789,8 @@ $MalwareConfig = @{
         "TamperedChef*",
         "AceLauncher*",
         "AceLauncherDock*",
-        "AceLauncherAutoUpdate*"
+        "AceLauncherAutoUpdate*",
+        "PDFFlows*"
     )
 
     # ----------------------------------------------------------------------------
@@ -808,7 +817,8 @@ $MalwareConfig = @{
         "TamperedChef*",
         "AceLauncher*",
         "AceLauncherDock*",
-        "AceLauncherAutoUpdate*"
+        "AceLauncherAutoUpdate*",
+        "PDFFlows*"
     )
 }
 
