@@ -820,7 +820,25 @@ $MalwareConfig = @{
         "Software\Classes\TamperedChef*",
         "Software\Clients\StartMenuInternet\TamperedChef*"
     )
-    
+
+    # ----------------------------------------------------------------------------
+    # MALWARE CONFIGURATION - Uninstall Entries (matched by VALUE)
+    # ----------------------------------------------------------------------------
+
+    # Uninstall-entry matching by VALUE, not key name. MSI ProductCode keys are
+    # named {GUID} (e.g. {CFABAEDF-6112-D9F5-5B44-AC3CA6F6C67E}), so the
+    # name-based patterns above can never reach them. A key is removed when its
+    # DisplayName OR Publisher matches one of these.
+    # SAFETY: this is matched against every real Uninstall subkey on the box
+    # (~226 on a typical endpoint), most belonging to legitimate software.
+    # Keep every pattern anchored to a threat name; never add generic vendor
+    # words. Entries hitting Certificates.ProtectedKeywords are report-only.
+    UninstallValuePatterns = @(
+        "*ScreenConnect*",
+        "*ConnectWise*",
+        "*HideMouse*"
+    )
+
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Browser Entries
     # ----------------------------------------------------------------------------
@@ -3770,6 +3788,114 @@ function Remove-RegistryKeyRecursive {
 }
 
 # ============================================================================ #
+#  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS) - Remove-UninstallEntryByValue
+# ============================================================================ #
+
+function Remove-UninstallEntryByValue {
+    <#
+    .SYNOPSIS
+    Removes Uninstall registry entries matched by their VALUES, not key name
+
+    .DESCRIPTION
+    MSI-installed products register an Uninstall key named after their
+    ProductCode GUID (e.g. {CFABAEDF-6112-D9F5-5B44-AC3CA6F6C67E}), which no
+    name-based pattern can match. The ProductCode is regenerated per MSI build,
+    so it also cannot be hardcoded.
+
+    This enumerates a given Uninstall hive, reads DisplayName and Publisher on
+    each subkey, and removes any whose values match a threat pattern.
+
+    Entries matching Certificates.ProtectedKeywords (Microsoft, Adobe, ...) are
+    REPORTED ONLY and never removed, even if they also match a threat pattern.
+
+    Actual deletion is delegated to Remove-RegistryKeyRecursive so all result
+    tracking, verification and $StatusLevels handling is shared.
+
+    .PARAMETER HivePath
+    Uninstall hive to scan (HKLM:\..., HKLM:\...\WOW6432Node\..., or
+    Registry::HKU\<SID>\...)
+
+    .PARAMETER ValuePatterns
+    Wildcard patterns matched against DisplayName / Publisher
+
+    .PARAMETER ProtectedKeywords
+    Vendor keywords that make an entry report-only
+
+    .RETURNS
+    Count of entries removed
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$HivePath,
+
+        [Parameter(Mandatory=$true)]
+        [array]$ValuePatterns,
+
+        [Parameter(Mandatory=$true)]
+        [array]$ProtectedKeywords
+    )
+
+    $removed = 0
+
+    if (-not (Test-Path $HivePath)) {
+        Write-Log "    [$($StatusLevels.NotFound)] Hive does not exist: $HivePath" -Level INFO
+        return $removed
+    }
+
+    $subKeys = @(Get-ChildItem $HivePath -ErrorAction SilentlyContinue)
+    Write-Log "    Scanning $($subKeys.Count) uninstall entries in: $HivePath" -Level INFO
+
+    foreach ($sub in $subKeys) {
+        $props = Get-ItemProperty $sub.PSPath -ErrorAction SilentlyContinue
+        if (-not $props) { continue }
+
+        # Match on DisplayName OR Publisher
+        $matchedPattern = $null
+        foreach ($pattern in $ValuePatterns) {
+            if ($props.DisplayName -like $pattern -or $props.Publisher -like $pattern) {
+                $matchedPattern = $pattern
+                break
+            }
+        }
+
+        if (-not $matchedPattern) { continue }
+
+        # Protected-vendor guard. Test-ProtectedCertificate is a generic keyword
+        # matcher despite its name - it takes a plain string and a keyword array.
+        $guard = Test-ProtectedCertificate `
+            -Subject "$($props.DisplayName) $($props.Publisher)" `
+            -ProtectedKeywords $ProtectedKeywords
+
+        if ($guard.IsProtected) {
+            Write-Log "    [PROTECTED] $($sub.PSChildName)" -Level WARNING
+            Write-Log "      DisplayName: $($props.DisplayName)" -Level WARNING
+            Write-Log "      Matched '$matchedPattern' but protected by '$($guard.Keyword)'" -Level WARNING
+            Write-Log "      Action: REPORT ONLY - NOT REMOVED" -Level WARNING
+
+            $RemediationResults.ActionItems.ProtectedItems += @{
+                Type        = "UninstallEntry"
+                Key         = $sub.PSChildName
+                HivePath    = $HivePath
+                DisplayName = $props.DisplayName
+                Publisher   = $props.Publisher
+                Matched     = $matchedPattern
+                Protected   = $guard.Keyword
+            }
+            continue
+        }
+
+        Write-Log "    [FOUND] $($sub.PSChildName) (matched '$matchedPattern')" -Level WARNING
+        Write-Log "      DisplayName: $($props.DisplayName)" -Level WARNING
+        Write-Log "      Publisher:   $($props.Publisher)" -Level WARNING
+
+        $result = Remove-RegistryKeyRecursive -KeyPath $sub.PSPath
+        if ($result -eq $StatusLevels.Success) { $removed++ }
+    }
+
+    return $removed
+}
+
+# ============================================================================ #
 #  PRIMARY FUNCTIONS - REGISTRY CLEANUP (ARTIFACTS) - Remove-MalwareRegistryKeys
 # ============================================================================ #
 
@@ -3786,13 +3912,19 @@ function Remove-MalwareRegistryKeys {
     REMOVAL ORDER:
     Phase 1: HKLM keys (machine-wide artifacts)
     Phase 2: HKU keys (per-user artifacts, including wildcards)
-    
+    Phase 3: Uninstall entries matched by VALUE (GUID-named MSI ProductCode keys)
+
     .PARAMETER HKLMPaths
     Array of HKLM registry paths to remove (exact paths)
-    
+
     .PARAMETER HKUPatterns
     Array of HKU registry path patterns (supports wildcards)
-    
+
+    .PARAMETER UninstallValuePatterns
+    Patterns matched against Uninstall entries' DisplayName / Publisher values.
+    Required because MSI ProductCode keys are named {GUID} and cannot be
+    matched by name.
+
     .NOTES
     This runs AFTER persistence removal to clean up remaining traces.
     Wildcards in HKUPatterns allow matching multiple keys (e.g., "Software\Classes\OneStart*")
@@ -3803,9 +3935,12 @@ function Remove-MalwareRegistryKeys {
     param(
         [Parameter(Mandatory=$true)]
         [array]$HKLMPaths,
-        
+
         [Parameter(Mandatory=$true)]
-        [array]$HKUPatterns
+        [array]$HKUPatterns,
+
+        [Parameter(Mandatory=$true)]
+        [array]$UninstallValuePatterns
     )
     
     # ========================================================================
@@ -3921,7 +4056,39 @@ function Remove-MalwareRegistryKeys {
             }
         }
     }
-    
+
+    # ========================================================================
+    # PHASE 3: REMOVE UNINSTALL ENTRIES BY VALUE
+    # ========================================================================
+    # MSI products register an Uninstall key named after their ProductCode
+    # GUID, e.g. {CFABAEDF-6112-D9F5-5B44-AC3CA6F6C67E}. No name-based pattern
+    # can reach those, and the GUID differs per MSI build so it cannot be
+    # hardcoded. Match on DisplayName / Publisher values instead.
+
+    Write-Log "" -Level INFO
+    Write-Log "Phase 3: Removing uninstall entries by value..." -Level INFO
+    Write-Log "  Matches DisplayName/Publisher - catches GUID-named MSI keys" -Level INFO
+
+    # Both machine-wide hives (32-bit entries live under WOW6432Node) plus
+    # each user's per-user Uninstall hive.
+    $uninstallHives = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+
+    foreach ($sid in (Get-UserSIDs)) {
+        $uninstallHives += "Registry::HKU\$sid\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+    }
+
+    $uninstallRemoved = 0
+    foreach ($hive in $uninstallHives) {
+        $uninstallRemoved += Remove-UninstallEntryByValue -HivePath $hive `
+            -ValuePatterns $UninstallValuePatterns `
+            -ProtectedKeywords $MalwareConfig.Certificates.ProtectedKeywords
+    }
+
+    Write-Log "  Phase 3 Complete: Removed $uninstallRemoved uninstall entry(ies)" -Level INFO
+
     # ========================================================================
     # MODULE SUMMARY
     # ========================================================================
@@ -4788,7 +4955,8 @@ Write-Log "--------------------------------------------" -Level INFO
 
 try {
     Remove-MalwareRegistryKeys -HKLMPaths $MalwareConfig.RegistryHKLM `
-        -HKUPatterns $MalwareConfig.RegistryHKUPatterns
+        -HKUPatterns $MalwareConfig.RegistryHKUPatterns `
+        -UninstallValuePatterns $MalwareConfig.UninstallValuePatterns
     
     $moduleEndTime = Get-Date
     Write-ModuleTiming -ModuleName "RegistryCleanup" -StartTime $moduleStartTime -EndTime $moduleEndTime
