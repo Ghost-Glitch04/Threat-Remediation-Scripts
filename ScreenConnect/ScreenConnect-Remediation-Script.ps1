@@ -62,6 +62,8 @@ $MalwareConfig = @{
     Processes = @(
         "ScreenConnect",
         "ScreenConnect.Client",
+        "ScreenConnect.ClientService",        # installed client service binary
+        "ConnectWiseControl.ClientService",   # vendor rebrand
         "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
         "HideMouse",
@@ -153,6 +155,12 @@ $MalwareConfig = @{
         "ScreenConnect.Client",
         "ScreenConnect.ClientSetup",
         "ScreenConnect.WindowsClient",
+        # Installed client service - the name carries a random 16-hex instance
+        # ID, e.g. "ScreenConnect Client (c9c1dafe4c36cf5c)". This is the
+        # persistent remote-access foothold (ScreenConnect.ClientService.exe).
+        # Relies on the wildcard resolution in Stop-MalwareService.
+        "ScreenConnect Client (*)",
+        "ConnectWiseControl Client (*)",   # vendor rebrand, same service layout
         "HideMouse",
         "Password",
         "Get-PASSWORD",
@@ -679,6 +687,18 @@ $MalwareConfig = @{
         "C:\Program Files (x86)\EPISoftware",
         "C:\Program Files\EpiBrowser",
         "C:\Program Files (x86)\EpiBrowser",
+        # Installed client directories - the folder name carries a random
+        # 16-hex instance ID, e.g.
+        # "C:\Program Files (x86)\ScreenConnect Client (c9c1dafe4c36cf5c)".
+        # Phase 3's wildcard branch splits on the last segment, so the parent
+        # is "C:\Program Files (x86)" and the match is the instance DIRECTORY,
+        # which Remove-PathItem deletes recursively (taking ClientService.exe).
+        # NOTE: the service must be stopped/deleted first (Module 2) or the
+        # .exe is locked and this removal fails with a sharing violation.
+        "C:\Program Files (x86)\ScreenConnect Client (*)",
+        "C:\Program Files\ScreenConnect Client (*)",
+        "C:\Program Files (x86)\ConnectWiseControl Client (*)",
+        "C:\Program Files\ConnectWiseControl Client (*)",
         # ScreenConnect installer temp folders
         "C:\Windows\SystemTemp\ScreenConnect\*",
         "C:\Windows\Installer\5f9617.msi",  # Malicious MSI in installer cache
@@ -1941,23 +1961,59 @@ function Stop-MalwareService {
     Write-Log "========================================" -Level INFO
     Write-Log "Target services: $($ServiceNames.Count)" -Level INFO
     
-    foreach ($serviceName in $ServiceNames) {
+    foreach ($servicePattern in $ServiceNames) {
+
+        # ====================================================================
+        # RESOLVE: expand config entry to concrete service name(s)
+        # ====================================================================
+        # Get-Service -Name accepts wildcards and returns a COLLECTION, but the
+        # downstream Stop-Service -Name and `sc.exe delete` both require a
+        # literal service name. Service names such as the installed
+        # ScreenConnect client carry a random 16-hex instance ID
+        # (e.g. "ScreenConnect Client (c9c1dafe4c36cf5c)"), so we must expand
+        # the pattern here and act on each RESOLVED name individually.
+        # A non-wildcard entry resolves to either itself or nothing, so
+        # existing literal config entries behave exactly as before.
+
+        $resolved = @(Get-Service -Name $servicePattern -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty Name)
+
+        if ($resolved.Count -eq 0) {
+            $RemediationResults.Summary.ServicesChecked++
+
+            Write-Log "Checking for service: $servicePattern" -Level INFO
+            Write-Log "  [NOT FOUND] Service does not exist: $servicePattern" -Level INFO
+
+            $record = New-ServiceRecord -ServiceName $servicePattern -Status $StatusLevels.NotFound
+            $RemediationResults.Services.NotFound += $record
+            $RemediationResults.Summary.ServicesNotFound++
+            continue
+        }
+
+        # Log pattern expansion when the entry was a wildcard (or matched
+        # something other than itself) so the log shows what was really hit.
+        if ($resolved.Count -gt 1 -or $resolved[0] -ne $servicePattern) {
+            Write-Log "Pattern '$servicePattern' resolved to $($resolved.Count) service(s): $($resolved -join ', ')" -Level WARNING
+        }
+
+    foreach ($serviceName in $resolved) {
         $RemediationResults.Summary.ServicesChecked++
-        
+
         Write-Log "Checking for service: $serviceName" -Level INFO
-        
-        # Check if service exists
+
+        # Re-fetch as a single resolved object (name is now literal)
         $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-        
+
         if (-not $service) {
-            Write-Log "  [NOT FOUND] Service does not exist: $serviceName" -Level INFO
-            
+            # Service disappeared between resolution and action
+            Write-Log "  [NOT FOUND] Service no longer exists: $serviceName" -Level INFO
+
             $record = New-ServiceRecord -ServiceName $serviceName -Status $StatusLevels.NotFound
             $RemediationResults.Services.NotFound += $record
             $RemediationResults.Summary.ServicesNotFound++
             continue
         }
-        
+
         # Service found - capture details
         $RemediationResults.Summary.ServicesFound++
         $serviceDetails = Get-ServiceDetails -Service $service
@@ -2082,8 +2138,9 @@ function Stop-MalwareService {
             # Log critical error for final report
             $RemediationResults.CriticalErrors += "Service: $serviceName - Stop: $stopResult | Removal: $removalResult"
         }
-    }
-    
+    }   # end foreach resolved service name
+    }   # end foreach service pattern
+
     # Module timing end
     $moduleEndTime = Get-Date
     Write-ModuleTiming -ModuleName "Services" -StartTime $moduleStartTime -EndTime $moduleEndTime
