@@ -82,8 +82,6 @@ $MalwareConfig = @{
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
         SuspiciousKeywords = @(
-            ""
-            "Dummy certificate",  # SRC: JOE AI Summary - "anomalous expired dummy certificate, CN=Dummy certificate" embedded in the v133.0.6943.205 build. OPEN GAP: no thumbprint/serial provided in source report, so this cannot be added to MaliciousThumbprints/MaliciousSerialNumbers - analyze-only until a thumbprint is captured (e.g. via live-host telemetry).
             "Alabama",
             "Alamaba Technology",
             "Alabama Technology USA",
