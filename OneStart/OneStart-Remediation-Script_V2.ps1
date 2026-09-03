@@ -127,7 +127,8 @@ $MalwareConfig = @{
         "AceLauncher",
         "AceLauncherUpdater",
         "AceLauncherDock",
-        "PDFFlows"
+        "PDFFlows",
+        "pulsebrowser"
         # NOTE: The Velopack "Update.exe" updater is NOT listed here because that
         # generic name also matches legitimate apps (Discord, GitHub Desktop, Teams,
         # other Squirrel/Velopack apps). It is terminated by the path-scoped
@@ -160,7 +161,8 @@ $MalwareConfig = @{
         "ManualFinderService",
         "AceLauncher",
         "AceLauncherUpdater",
-        "PDFFlows"
+        "PDFFlows",
+        "pulsebrowser"
     )
     
     # ----------------------------------------------------------------------------
@@ -180,7 +182,8 @@ $MalwareConfig = @{
             "17F77710C888E30917F71F7909086BCC2D131F61",  # NEW - Byte Media Sdn. Bhd. (REVOKED) - EpiBrowser
             "3EBBB02A48F7DB26B708F5E535E8DCE8EFF2CAEA",   # NEW - App Interplace LLC (REVOKED) - JustAskJacky
             "2867D887B47031BADE31204951D86BC856D8A783",  # Sunstream Labs (Capital Intellect Inc.)
-            "CF9BD0E03985B8F917E43A47145DE57F7691BED5"  # Sunstream Labs (Capital Intellect Inc.)
+            "CF9BD0E03985B8F917E43A47145DE57F7691BED5",  # Sunstream Labs (Capital Intellect Inc.)
+            "CB7DD993165246E52B2CCB50DC8D4779711F68E7"   # Alabama Technology USA, LLC - PulseBrowser
         )
         
         # Known malicious certificate serial numbers (PRIORITY 2 - REMOVE)
@@ -202,7 +205,8 @@ $MalwareConfig = @{
             "0A996159295E70CE0A7E393DD7B94B55",                    # Sunstream Labs (Capital Intellect Inc.)
             "0A 99 61 59 29 5E 70 CE 0A 7E 39 3D D7 B9 4B 55",     # Sunstream Labs (Capital Intellect Inc.)
             "059F42894280696C40C8487BB05D064C",                    # Sunstream Labs (Capital Intellect Inc.)
-            "05 9F 42 89 42 80 69 6C 40 C8 48 7B B0 5D 06 4C"      # Sunstream Labs (Capital Intellect Inc.)
+            "05 9F 42 89 42 80 69 6C 40 C8 48 7B B0 5D 06 4C",     # Alabama Technology USA, LLC - PulseBrowser
+            "CB7DD993165246E52B2CCB50DC8D4779711F68E7"             # Alabama Technology USA, LLC - PulseBrowser
         )
         
         # Suspicious keywords in Subject/Issuer (PRIORITY 3 - ANALYZE)
@@ -242,7 +246,11 @@ $MalwareConfig = @{
             "Tampered Chef",
             "Sunstream Labs",
             "Capital Intellect",
-            "WIN.RAR GMBH"
+            "WIN.RAR GMBH",
+            "Alabama",
+            "Alamaba Technology",
+            "Alabama Technology USA",
+            "Alabama Technology USA, LLC"
         )
         
         # Protected keywords - REPORT ONLY, DO NOT DELETE
@@ -310,7 +318,8 @@ $MalwareConfig = @{
         "AceLauncher Browser",
         "AceLauncher Statistics",
         "AceLauncher Wakeup",
-        "AceLauncher Autoupdate"
+        "AceLauncher Autoupdate",
+        "PulseBrowser*"
     )
 
     # ----------------------------------------------------------------------------
@@ -347,7 +356,8 @@ $MalwareConfig = @{
         "AceLauncher*",
         "AceLauncherDock*",
         "AceLauncherAutoUpdate*",
-        "PDFFlows*"
+        "PDFFlows*",
+        "pulsebrowser*"
     )
     
     # Registered applications patterns
@@ -373,7 +383,8 @@ $MalwareConfig = @{
         "AceLauncher*",
         "AceLauncherDock*",
         "AceLauncherAutoUpdate*",
-        "PDFFlows*"
+        "PDFFlows*",
+        "pulsebrowser*"
     )
     
     # User-specific paths (exact matches only)
@@ -482,7 +493,8 @@ $MalwareConfig = @{
         "%LOCALAPPDATA%\AceLauncher\Application\AceLauncher.exe",
         "%LOCALAPPDATA%\AceLauncherDock",
         "%LOCALAPPDATA%\AceLauncherDock\current\AceLauncher.exe",
-        "%LOCALAPPDATA%\AceLauncherAutoUpdate"
+        "%LOCALAPPDATA%\AceLauncherAutoUpdate",
+        "%LOCALAPPDATA%\PulseSoftware"
     )
     
     # ----------------------------------------------------------------------------
@@ -735,7 +747,13 @@ $MalwareConfig = @{
         "Software\TamperedChef*",
         "Software\Microsoft\Windows\CurrentVersion\Uninstall\*TamperedChef*",
         "Software\Classes\TamperedChef*",
-        "Software\Clients\StartMenuInternet\TamperedChef*"
+        "Software\Clients\StartMenuInternet\TamperedChef*",
+        "SOFTWARE\PulseSoftware\Update",
+        "_CLASSESROOT:CLSID\{0EC63402-A762-59E6-8094-42CCD06D5224}",
+        "_CLASSESROOT:Interface\{1E8CAE0D-DBFB-5F8D-8C4C-631A96B2AE9E}",
+        "_CLASSESROOT:Interface\{F4F9F399-D63B-5AC7-89F4-7DB385E0BCB8}",
+        "_CLASSESROOT:TypeLib\{1E8CAE0D-DBFB-5F8D-8C4C-631A96B2AE9E}",
+        "_CLASSESROOT:TypeLib\{F4F9F399-D63B-5AC7-89F4-7DB385E0BCB8}"
     )
     
     # ----------------------------------------------------------------------------
@@ -760,7 +778,8 @@ $MalwareConfig = @{
         "RecipeLister*",
         "TamperedChef*",
         "oobincnjpkooeennnochfgblilnhldfg",
-        "AceLauncher"
+        "AceLauncher",
+        "pulsebrowser*"
     )
 
     # ----------------------------------------------------------------------------
@@ -790,7 +809,8 @@ $MalwareConfig = @{
         "AceLauncher*",
         "AceLauncherDock*",
         "AceLauncherAutoUpdate*",
-        "PDFFlows*"
+        "PDFFlows*",
+        "pulsebrowser*"
     )
 
     # ----------------------------------------------------------------------------
@@ -818,7 +838,8 @@ $MalwareConfig = @{
         "AceLauncher*",
         "AceLauncherDock*",
         "AceLauncherAutoUpdate*",
-        "PDFFlows*"
+        "PDFFlows*",
+        "pulsebrowser*"
     )
 }
 
