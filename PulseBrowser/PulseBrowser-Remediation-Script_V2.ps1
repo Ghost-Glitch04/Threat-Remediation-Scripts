@@ -126,6 +126,10 @@ $MalwareConfig = @{
 
     # Scheduled task patterns
     TaskPatterns = @(
+        "PulseBrowser*",
+        "PulseBrowserUpdater*",
+        "PulseSoftware*",
+        "PulseSoftwareUpdater*",
         "*\PulseSoftware\PulseBrowserUpdater\PulseBrowserUpdaterTaskUser*"  # SRC: VT CAPE files_written - "C:\Windows\System32\Tasks\PulseSoftware\PulseBrowserUpdater\PulseBrowserUpdaterTaskUser135.0.7049.101{7F7FC0A0-2249-4D27-BF10-FD0E055C7E73}"
     )
 
