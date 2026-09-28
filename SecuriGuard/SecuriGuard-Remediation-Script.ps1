@@ -28,23 +28,43 @@ try {
 # ----------------------------------------------------------------------------
 # MALWARE CONFIGURATION
 # ----------------------------------------------------------------------------
+
+
+# ----------------------------------------------------------------------------
+# MALWARE CONFIGURATION
+# ----------------------------------------------------------------------------
 $MalwareConfig = @{
 
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Metadata
     # ----------------------------------------------------------------------------
 
+    # Metadata
     Metadata = @{
-        Version = "2.3.0"  # UPDATED
-        LastUpdated = "2026-02-24"  # UPDATED
+        Version = "1.0.0"
+        LastUpdated = "2026-09-28"
         Author = "sentinelrshuser"
-        ThreatFamily = "EvilAI / OneStart.AI / OpenMyManual / Isher"
-        FirstSeen = "2023-10"
-        Severity = "HIGH"
-        Description = "Browser hijacker and PUP family that installs unwanted certificates, modifies browser settings, and steals credential data. Distributed via rebranded PDF utilities and manual finder apps."
+        # SRC: [VT L780] popular_threat_name "phantomjack" (11 engines)
+        # SRC: [VT L783] suggested_threat_label "trojan.phantomjack/siggen33"
+        ThreatFamily = "PhantomJack (trojan.phantomjack/siggen33) - NW.js app in sideloaded MSIX"
+        # SRC: [HOST-1] SecuriGuard.msix downloaded 2026-02-26 11:58 AM;
+        #      AppRepository .xml + ProgramData\Packages dir 2026-02-26 12:00 PM
+        # NOTE: VT first_submission 2024-09-17 [VT L24] is the shared runtime
+        #       hash, not this campaign (DEC-006)
+        FirstSeen = "2026-02-26"
+        # SEE: DEC-001 (provisional - re-rate after payload analysis)
+        Severity = "High"
+        # SRC: [VT L30-34] [S1 L3-15] [HOST-1]
+        Description = "Rogue 'security' app built on a stock NW.js 0.78.2 runtime (renamed nw.exe -> SecuriGuard.exe), delivered as a user-downloaded, sideloaded MSIX (SecuriGuard.SecuriGuard_cxyvm2ek45t0m). Malicious logic lives in the packaged app content, not the EXE. Launches at logon, runs Chromium with --no-sandbox, polls AWS Global Accelerator IP 3.33.148.61 at ~90-100 min intervals. Survived S1 mitigation on 2026-09-23."
+        # CONFIRMED-EMPTY: no CVE; CVSS does not apply to a malware family
+        CVSS = ""
+        # SRC: [VT L30-34] malicious 20 / undetected 51 / type-unsupported 4
+        #      Zenbox CLEAN (DEC-007) | [S1] Malicious/Malware, Agent Policy
+        ThreatIntelSource = "VirusTotal - 20/75 detections; SentinelOne Threat 2574858297691866718"
     }
 
-    Name = "EvilAI"
+    # SRC: [S1 L3] Threat name "SecuriGuard.exe"; [VT L44] names
+    Name = "SecuriGuard"
     
     # ----------------------------------------------------------------------------
     # MALWARE CONFIGURATION - Processes
@@ -135,7 +155,6 @@ $MalwareConfig = @{
         # Stop-VelopackUpdater helper instead (only kills Update.exe running from an
         # AceLauncher* folder).
         "SecuriGuard"
-        
     )
 
     # ----------------------------------------------------------------------------
