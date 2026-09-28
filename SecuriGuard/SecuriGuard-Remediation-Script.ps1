@@ -788,7 +788,8 @@ $MalwareConfig = @{
         "_CLASSESROOT:Interface\{1E8CAE0D-DBFB-5F8D-8C4C-631A96B2AE9E}",
         "_CLASSESROOT:Interface\{F4F9F399-D63B-5AC7-89F4-7DB385E0BCB8}",
         "_CLASSESROOT:TypeLib\{1E8CAE0D-DBFB-5F8D-8C4C-631A96B2AE9E}",
-        "_CLASSESROOT:TypeLib\{F4F9F399-D63B-5AC7-89F4-7DB385E0BCB8}"
+        "_CLASSESROOT:TypeLib\{F4F9F399-D63B-5AC7-89F4-7DB385E0BCB8}",
+        "_CLASSESROOT:Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\SecuriGuard.SecuriGuard_cxyvm2ek45t0m"
     )
     
     # ----------------------------------------------------------------------------
