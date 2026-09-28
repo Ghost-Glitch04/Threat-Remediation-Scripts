@@ -154,7 +154,8 @@ $MalwareConfig = @{
         # other Squirrel/Velopack apps). It is terminated by the path-scoped
         # Stop-VelopackUpdater helper instead (only kills Update.exe running from an
         # AceLauncher* folder).
-        "SecuriGuard"
+        "SecuriGuard",
+        "SafeDomainGuardian"
     )
 
     # ----------------------------------------------------------------------------
@@ -184,7 +185,8 @@ $MalwareConfig = @{
         "AceLauncherUpdater",
         "PDFFlows",
         "pulsebrowser",
-        "SecuriGuard"
+        "SecuriGuard",
+        "SafeDomainGuardian"
     )
     
     # ----------------------------------------------------------------------------
@@ -273,7 +275,8 @@ $MalwareConfig = @{
             "Alamaba Technology",
             "Alabama Technology USA",
             "Alabama Technology USA, LLC",
-            "SecuriGuard"
+            "SecuriGuard",
+            "SafeDomainGuardian"
         )
         
         # Protected keywords - REPORT ONLY, DO NOT DELETE
@@ -343,7 +346,8 @@ $MalwareConfig = @{
         "AceLauncher Wakeup",
         "AceLauncher Autoupdate",
         "PulseBrowser*",
-        "SecuriGuard*"
+        "SecuriGuard*",
+        "SafeDomainGuardian*"
     )
 
     # ----------------------------------------------------------------------------
@@ -382,7 +386,8 @@ $MalwareConfig = @{
         "AceLauncherAutoUpdate*",
         "PDFFlows*",
         "pulsebrowser*",
-        "SecuriGuard*"
+        "SecuriGuard*",
+        "SafeDomainGuardian*"
     )
     
     # Registered applications patterns
@@ -410,7 +415,8 @@ $MalwareConfig = @{
         "AceLauncherAutoUpdate*",
         "PDFFlows*",
         "pulsebrowser*",
-        "SecuriGuard*"
+        "SecuriGuard*",
+        "SafeDomainGuardian*"
     )
     
     # User-specific paths (exact matches only)
@@ -522,7 +528,10 @@ $MalwareConfig = @{
         "%LOCALAPPDATA%\AceLauncherAutoUpdate",
         "%LOCALAPPDATA%\PulseSoftware",
         "%LOCALAPPDATA%\Packages\SecuriGuard.SecuriGuard_cxyvm2ek45t0m",
-        "%LOCALAPPDATA%\Packages\SecuriGuard*"
+        "%LOCALAPPDATA%\Packages\SecuriGuard*",
+        "%LOCALAPPDATA%\Packages\SafeDomainGuardian*",
+        "C:\Users\{USER}\SafeDomainGuardian",
+        "C:\Users\{USER}\AppData\Local\Packages\SafeDomainGuardian.SafeDomainGuardian_wwmn3wpc6257t"
     )
     
     # ----------------------------------------------------------------------------
@@ -639,7 +648,8 @@ $MalwareConfig = @{
         "AceLauncherDock-*-full.nupkg",
         "PDFFlows*.exe ",
         "PDFFlows*.msi",
-        "SecuriGuard*.msix"
+        "SecuriGuard*.msix",
+        "SafeDomainGuardian*.msix"
     )
     
     # System-level paths
@@ -789,7 +799,8 @@ $MalwareConfig = @{
         "_CLASSESROOT:Interface\{F4F9F399-D63B-5AC7-89F4-7DB385E0BCB8}",
         "_CLASSESROOT:TypeLib\{1E8CAE0D-DBFB-5F8D-8C4C-631A96B2AE9E}",
         "_CLASSESROOT:TypeLib\{F4F9F399-D63B-5AC7-89F4-7DB385E0BCB8}",
-        "_CLASSESROOT:Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\SecuriGuard.SecuriGuard_cxyvm2ek45t0m"
+        "_CLASSESROOT:Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\SecuriGuard.SecuriGuard_cxyvm2ek45t0m",
+        "_CLASSESROOT:Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData\SafeDomainGuardian.SafeDomainGuardian_wwmn3wpc6257t"
     )
     
     # ----------------------------------------------------------------------------
@@ -816,7 +827,8 @@ $MalwareConfig = @{
         "oobincnjpkooeennnochfgblilnhldfg",
         "AceLauncher",
         "pulsebrowser*",
-        "SecuriGuard*"
+        "SecuriGuard*",
+        "SafeDomainGuardian*"
     )
 
     # ----------------------------------------------------------------------------
@@ -848,7 +860,8 @@ $MalwareConfig = @{
         "AceLauncherAutoUpdate*",
         "PDFFlows*",
         "pulsebrowser*",
-        "SecuriGuard*"
+        "SecuriGuard*",
+        "SafeDomainGuardian*"
     )
 
     # ----------------------------------------------------------------------------
@@ -878,7 +891,8 @@ $MalwareConfig = @{
         "AceLauncherAutoUpdate*",
         "PDFFlows*",
         "pulsebrowser*",
-        "SecuriGuard*"
+        "SecuriGuard*",
+        "SafeDomainGuardian*"
     )
 }
 
